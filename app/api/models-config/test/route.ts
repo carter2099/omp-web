@@ -1,110 +1,44 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { NextResponse } from "next/server";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { completeSimple, type AssistantMessage } from "@earendil-works/pi-ai/compat";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+import { parseModelTestBody, redactSecrets, testModelFromConfig } from "@/lib/models-service";
 
 export const dynamic = "force-dynamic";
 
-const TEST_TIMEOUT_MS = 20_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function getAssistantText(message: AssistantMessage): string {
-  return message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("");
-}
-
+/**
+ * Isolated model probe. Order is mandatory:
+ * 1. testModelFromConfig (opens runtime, always disposeOmpRuntime in its finally)
+ * 2. return JSON
+ * 3. rmdir temp tree (only after dispose has closed AuthStorage/SQLite)
+ */
 export async function POST(req: Request) {
-  let tempDir: string | undefined;
+	let tempRoot: string | undefined;
 
-  try {
-    const body = await req.json() as { providerName?: unknown; provider?: unknown; model?: unknown };
-    const providerName = typeof body.providerName === "string" ? body.providerName.trim() : "";
-    if (!providerName) return NextResponse.json({ ok: false, error: "providerName is required" }, { status: 400 });
-    if (!isRecord(body.provider)) return NextResponse.json({ ok: false, error: "provider is required" }, { status: 400 });
-    if (!isRecord(body.model)) return NextResponse.json({ ok: false, error: "model is required" }, { status: 400 });
+	try {
+		const body: unknown = await req.json();
+		const parsed = parseModelTestBody(body);
+		if ("error" in parsed) {
+			return NextResponse.json(
+				{ ok: false, error: redactSecrets(parsed.error) },
+				{ status: parsed.status },
+			);
+		}
 
-    const modelId = typeof body.model.id === "string" ? body.model.id.trim() : "";
-    if (!modelId) return NextResponse.json({ ok: false, error: "Model ID is required" }, { status: 400 });
+		tempRoot = mkdtempSync(join(tmpdir(), "pi-web-model-test-"));
+		const agentDir = join(tempRoot, ".omp", "agent");
+		mkdirSync(agentDir, { recursive: true });
 
-    tempDir = mkdtempSync(join(tmpdir(), "pi-web-model-test-"));
-    const modelsPath = join(tempDir, "models.json");
-    writeFileSync(modelsPath, JSON.stringify({
-      providers: {
-        [providerName]: {
-          ...body.provider,
-          models: [{ ...body.model, id: modelId }],
-        },
-      },
-    }, null, 2), "utf8");
-
-    const modelRuntime = await ModelRuntime.create({ modelsPath });
-    const loadError = modelRuntime.getError();
-    if (loadError) return NextResponse.json({ ok: false, error: loadError });
-
-    const model = modelRuntime.getModel(providerName, modelId);
-    if (!model) return NextResponse.json({ ok: false, error: `Model not found: ${providerName}/${modelId}` });
-
-    const resolved = await modelRuntime.getAuth(model);
-    if (!resolved?.auth.apiKey) {
-      return NextResponse.json({ ok: false, error: `No API key found for "${providerName}"` });
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TEST_TIMEOUT_MS);
-    let status: number | undefined;
-    const startedAt = Date.now();
-
-    try {
-      const message = await completeSimple(model, {
-        messages: [{
-          role: "user",
-          content: "Reply with OK only.",
-          timestamp: Date.now(),
-        }],
-      }, {
-        apiKey: resolved.auth.apiKey,
-        headers: resolved.auth.headers,
-        maxTokens: 16,
-        timeoutMs: TEST_TIMEOUT_MS,
-        maxRetries: 0,
-        cacheRetention: "none",
-        signal: controller.signal,
-        onResponse: (response) => { status = response.status; },
-      });
-
-      const latencyMs = Date.now() - startedAt;
-      if (message.stopReason === "error" || message.stopReason === "aborted") {
-        return NextResponse.json({
-          ok: false,
-          error: message.errorMessage ?? (controller.signal.aborted ? "Test timed out" : "Model returned an error"),
-          latencyMs,
-          status,
-        });
-      }
-
-      return NextResponse.json({
-        ok: true,
-        latencyMs,
-        status,
-        responseText: getAssistantText(message).slice(0, 300),
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
-  } finally {
-    if (tempDir) rmSync(tempDir, { recursive: true, force: true });
-  }
+		// Service owns dispose; do not rmdir until this settles.
+		const result = await testModelFromConfig(agentDir, parsed);
+		return NextResponse.json(result);
+	} catch (error) {
+		// no-excuse-ok: catch — HTTP boundary
+		const raw = error instanceof Error ? error.message : String(error);
+		return NextResponse.json({ ok: false, error: redactSecrets(raw) }, { status: 500 });
+	} finally {
+		if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
+	}
 }
