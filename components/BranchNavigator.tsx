@@ -66,7 +66,7 @@ function getLabel(entry: SessionEntry): string {
     }
     if (text.length > 40) text = text.slice(0, 40) + "…";
     if (text) return text;
-    if (msg.role === "assistant") return "[assistant]";
+    if (msg.role === "assistant") return "[助手]";
   }
   return entry.type;
 }
@@ -246,9 +246,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   }, [onLeafChange]);
 
   const noBranchReason = !hasSession
-    ? "No active session"
+    ? "无活动会话"
     : !hasBranch(tree)
-      ? "This session has no branches"
+      ? "此会话没有分支"
       : null;
 
   // Find first meaningful node (skip pure linear prefix)
@@ -296,12 +296,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
-          title="Branches"
-          aria-label="Branches"
+          title="分支"
+          aria-label="分支"
           aria-pressed={open}
         >
           {branchIcon}
-          {!compact && <span>Branches</span>}
+          {!compact && <span>分支</span>}
         </button>
         {open && dropdownPos && (
           <div style={{
@@ -358,7 +358,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
         }}
       >
         {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>Branches</span>
+        <span style={{ color: "var(--text-muted)" }}>分支</span>
         {chevron}
       </button>
 
@@ -390,7 +390,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
             </div>
           ) : (
             <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {noBranchReason ?? "This session has no branches"}
+              {noBranchReason ?? "此会话没有分支"}
             </div>
           )}
         </div>
