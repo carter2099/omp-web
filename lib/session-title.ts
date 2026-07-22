@@ -3,8 +3,8 @@ import {
   type AgentMessage,
   type AgentOptions,
   type AgentTool,
-} from "@earendil-works/pi-agent-core";
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+} from "@oh-my-pi/pi-agent-core";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
 
 const TITLE_TIMEOUT_MS = 90_000;
 const MAX_TITLE_LENGTH = 80;
@@ -29,6 +29,30 @@ export interface GeneratedSessionTitle {
   };
 }
 
+/**
+ * Structural source for title-agent cloning.
+ * Real OMP `Agent` keeps convertToLlm/transformContext private; tests and
+ * wrappers may still expose them as own properties for prefix preservation.
+ */
+type SessionTitleAgentSource = {
+  state: Agent["state"];
+  convertToLlm?: AgentOptions["convertToLlm"];
+  transformContext?: AgentOptions["transformContext"];
+  streamFn?: AgentOptions["streamFn"];
+  /** Legacy earendil field name; accepted then mapped to streamFn. */
+  streamFunction?: AgentOptions["streamFn"];
+  getApiKey?: AgentOptions["getApiKey"];
+  onPayload?: AgentOptions["onPayload"];
+  onResponse?: AgentOptions["onResponse"];
+  sessionId?: string;
+  thinkingBudgets?: AgentOptions["thinkingBudgets"];
+  maxRetryDelayMs?: number;
+  steeringMode?: AgentOptions["steeringMode"];
+  followUpMode?: AgentOptions["followUpMode"];
+  getSteeringMode?: () => AgentOptions["steeringMode"];
+  getFollowUpMode?: () => AgentOptions["followUpMode"];
+};
+
 function createShadowTools(tools: AgentTool[]): AgentTool[] {
   return tools.map((tool) => ({
     ...tool,
@@ -38,13 +62,24 @@ function createShadowTools(tools: AgentTool[]): AgentTool[] {
   }));
 }
 
+function readSteeringMode(source: SessionTitleAgentSource): AgentOptions["steeringMode"] {
+  if (typeof source.getSteeringMode === "function") return source.getSteeringMode();
+  return source.steeringMode;
+}
+
+function readFollowUpMode(source: SessionTitleAgentSource): AgentOptions["followUpMode"] {
+  if (typeof source.getFollowUpMode === "function") return source.getFollowUpMode();
+  return source.followUpMode;
+}
+
 /**
  * Build a temporary Agent configuration whose provider-facing prefix matches
  * the source Agent. Tool implementations are replaced without changing their
  * names, descriptions, or schemas, so a naming run cannot mutate the project.
  */
-export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
-  const state = source.state;
+export function buildSessionTitleAgentOptions(source: SessionTitleAgentSource | Agent): AgentOptions {
+  const src = source as SessionTitleAgentSource;
+  const state = src.state;
   return {
     initialState: {
       systemPrompt: state.systemPrompt,
@@ -53,19 +88,17 @@ export function buildSessionTitleAgentOptions(source: Agent): AgentOptions {
       tools: createShadowTools(state.tools),
       messages: state.messages,
     },
-    convertToLlm: source.convertToLlm,
-    transformContext: source.transformContext,
-    streamFunction: source.streamFunction,
-    getApiKey: source.getApiKey,
-    onPayload: source.onPayload,
-    onResponse: source.onResponse,
-    steeringMode: source.steeringMode,
-    followUpMode: source.followUpMode,
-    sessionId: source.sessionId,
-    thinkingBudgets: source.thinkingBudgets,
-    transport: source.transport,
-    maxRetryDelayMs: source.maxRetryDelayMs,
-    toolExecution: source.toolExecution,
+    convertToLlm: src.convertToLlm,
+    transformContext: src.transformContext,
+    streamFn: src.streamFn ?? src.streamFunction,
+    getApiKey: src.getApiKey,
+    onPayload: src.onPayload,
+    onResponse: src.onResponse,
+    steeringMode: readSteeringMode(src),
+    followUpMode: readFollowUpMode(src),
+    sessionId: src.sessionId,
+    thinkingBudgets: src.thinkingBudgets,
+    maxRetryDelayMs: src.maxRetryDelayMs,
   };
 }
 
@@ -144,7 +177,7 @@ function getAssistantResult(agent: Agent, historyLength: number): GeneratedSessi
       throw new Error(message.errorMessage || "The title model request failed");
     }
     const text = message.content
-      .filter((block) => block.type === "text")
+      .filter((block): block is { type: "text"; text: string } => block.type === "text")
       .map((block) => block.text)
       .join("\n")
       .trim();
