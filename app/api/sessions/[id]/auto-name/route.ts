@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
-import { SessionManager, type AgentSession } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@oh-my-pi/pi-coding-agent";
 import { generateSessionTitle } from "@/lib/session-title";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
-import { invalidateSessionListCache, resolveSessionPath } from "@/lib/session-reader";
+import {
+  invalidateSessionListCache,
+  resolveSessionPath,
+  withSessionManager,
+} from "@/lib/session-reader";
 
 export async function POST(
   _req: Request,
@@ -16,7 +20,10 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+    const cwd = await withSessionManager(
+      filePath,
+      (sm) => sm.getHeader()?.cwd ?? process.cwd(),
+    );
     const existing = getRpcSession(id);
     const { session } = existing?.isAlive()
       ? { session: existing }
@@ -34,7 +41,7 @@ export async function POST(
       );
     }
 
-    session.inner.setSessionName(result.title);
+    await session.inner.setSessionName(result.title);
     invalidateSessionListCache();
     return NextResponse.json({ title: result.title, usage: result.usage ?? null });
   } catch (error) {

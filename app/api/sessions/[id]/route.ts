@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "fs";
-import { join } from "path";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { statSync } from "fs";
 import {
   resolveSessionPath,
   resolveSessionIdByPath,
   invalidateSessionPathCache,
   invalidateSessionListCache,
   buildSessionContext,
-  readSessionHeader,
+  withSessionManager,
+  dropSessionFile,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 
@@ -123,47 +122,54 @@ export async function GET(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    const sm = SessionManager.open(filePath);
-    const entries = sm.getEntries() as never;
-    const leafId = sm.getLeafId();
-    const tree = projectTreeForResponse(sm.getTree());
     const searchParams = new URL(req.url).searchParams;
     const deferThinking = searchParams.has("deferThinking");
     const deferToolResultImages = searchParams.has("deferMedia");
-    const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages });
 
-    const header = sm.getHeader();
-    let modified = header?.timestamp ?? new Date().toISOString();
-    try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
-    const parentSessionId = header?.parentSession
-      ? await resolveSessionIdByPath(header.parentSession)
-      : undefined;
-    const info = header ? {
-      path: filePath,
-      id: header.id,
-      cwd: header.cwd ?? "",
-      name: sm.getSessionName(),
-      created: header.timestamp,
-      modified,
-      messageCount: context.messages.length,
-      firstMessage: context.messages.find((m) => m.role === "user")
-        ? (() => {
-            const msg = context.messages.find((m) => m.role === "user")!;
-            const c = (msg as { content: unknown }).content;
-            return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
-          })()
-        : "(no messages)",
-      parentSessionId,
-    } : null;
+    const payload = await withSessionManager(filePath, async (sm) => {
+      const entries = sm.getEntries() as never;
+      const leafId = sm.getLeafId();
+      const tree = projectTreeForResponse(sm.getTree());
+      const context = buildSessionContext(entries, leafId, { deferThinking, deferToolResultImages });
 
-    return NextResponse.json({
-      sessionId: id,
-      filePath,
-      info,
-      leafId,
-      tree,
-      context,
+      const header = sm.getHeader();
+      let modified = header?.timestamp ?? new Date().toISOString();
+      try { modified = statSync(filePath).mtime.toISOString(); } catch { /* use header timestamp */ }
+
+      const parentRef = header?.parentSession;
+      const parentSessionId = parentRef
+        ? (await resolveSessionIdByPath(parentRef)) ?? parentRef
+        : undefined;
+
+      const info = header ? {
+        path: filePath,
+        id: header.id,
+        cwd: header.cwd ?? "",
+        name: sm.getSessionName(),
+        created: header.timestamp,
+        modified,
+        messageCount: context.messages.length,
+        firstMessage: context.messages.find((m) => m.role === "user")
+          ? (() => {
+              const msg = context.messages.find((m) => m.role === "user")!;
+              const c = (msg as { content: unknown }).content;
+              return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
+            })()
+          : "(no messages)",
+        parentSessionId,
+      } : null;
+
+      return {
+        sessionId: id,
+        filePath,
+        info,
+        leafId,
+        tree,
+        context,
+      };
     });
+
+    return NextResponse.json(payload);
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -184,8 +190,9 @@ export async function PATCH(
     if (!filePath) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-    const sm = SessionManager.open(filePath);
-    sm.appendSessionInfo(name.trim());
+    await withSessionManager(filePath, async (sm) => {
+      await sm.setSessionName(name.trim(), "user");
+    });
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -194,6 +201,10 @@ export async function PATCH(
 }
 
 // DELETE /api/sessions/[id]
+//
+// Cascade note (OMP): dropSession deletes only this session file + artifacts.
+// Fork children are NOT reparented — matches OMP CLI. Orphaned children surface
+// as roots in the sidebar once the parent id is missing from the list.
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -205,32 +216,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Read only the bounded header before deleting.
-    const parentSessionPath = readSessionHeader(filePath)?.parentSession;
-
-    // Re-attach all direct children to this session's parent (cascade re-parent)
-    // Scan sibling files in the same directory
-    const dir = filePath.replace(/\\/g, "/").split("/").slice(0, -1).join("/");
-    try {
-      const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl") && join(dir, f) !== filePath);
-      for (const file of files) {
-        const childPath = join(dir, file);
-        try {
-          const content = readFileSync(childPath, "utf8");
-          const lines = content.split("\n");
-          const header = JSON.parse(lines[0]) as { type?: string; parentSession?: string };
-          if (header.type === "session" && header.parentSession === filePath) {
-            // Rewrite header with new parentSession
-            header.parentSession = parentSessionPath;
-            lines[0] = JSON.stringify(header);
-            writeFileSync(childPath, lines.join("\n"));
-          }
-        } catch { /* skip malformed */ }
-      }
-    } catch { /* skip if dir unreadable */ }
-
     getRpcSession(id)?.destroy();
-    unlinkSync(filePath);
+    await dropSessionFile(filePath);
     invalidateSessionPathCache(id);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });
