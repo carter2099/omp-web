@@ -60,7 +60,7 @@ export function buildSkillUpdateArgs(install: SkillInstallInfo): string[] {
     skillNameFromPackage(install.package),
     "-y",
     "--agent",
-    "pi",
+    "cline",
   ];
   if (install.scope === "global") args.push("-g");
   return args;
