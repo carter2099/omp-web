@@ -48,9 +48,9 @@ PI_WEB_NO_OPEN=1 pi-web         # useful when running as a background service
 
 ## Notes
 
-- **Data directory**: Pi Web reads `~/.pi/agent/sessions` by default. Set `PI_CODING_AGENT_DIR` to point at another pi agent directory.
-- **Session files**: files are stored as `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
-- **Model config**: the Models panel reads and writes `models.json` in the pi agent directory. Model lists and defaults come from pi's config.
+- **Data directory**: Pi Web reads `~/.omp/agent/sessions` by default. Set `OMP_AGENT_DIR` to point at another pi agent directory.
+- **Session files**: files are stored as `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`.
+- **Model config**: the Models panel reads and writes `models.yml` in the OMP agent directory (`~/.omp/agent`). Model lists and defaults come from OMP config (`ModelRegistry` + Settings).
 - **File access**: file browsing and preview are scoped to the selected project directory and working directories that appear in sessions.
 - **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for when the switcher appears, how new worktrees are created, and what removal does.
 - **Forks vs in-session branches**: Fork creates a new `.jsonl` file. "Edit from here" creates another branch inside the same session file.
@@ -85,7 +85,7 @@ app/
     files/          # file listing, reading, preview, and watching
     home/           # current user home directory
     models/         # available models, default model, thinking levels
-    models-config/  # read/write models.json and test models
+    models-config/  # read/write models.yml and test models
     sessions/       # session reads, rename, delete, context, HTML export
     skills/         # skill listing, search, install, enable/disable
 components/

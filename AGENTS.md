@@ -17,7 +17,7 @@ Lint: `npm run lint`
 ```
 Browser                Next.js Server              AgentSession (in-process)
   │                        │                               │
-  ├─ GET /api/sessions ────▶ reads ~/.pi/agent/sessions/   │
+  ├─ GET /api/sessions ────▶ reads ~/.omp/agent/sessions/   │
   ├─ GET /api/sessions/[id] reads .jsonl file directly     │
   ├─ GET /api/agent/running/events ───▶ running id SSE     │
   │                        │                               │
@@ -57,7 +57,7 @@ app/api/
   files/[...path]/route.ts        GET file contents for viewer
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
-  models-config/route.ts          GET/PUT — read/write ~/.pi/agent/models.json
+  models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
   models-config/test/route.ts     POST test a configured model/provider
   plugins/route.ts                GET/POST package plugin management
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
@@ -89,7 +89,7 @@ components/
   BranchNavigator.tsx in-session branch switcher
   ChatMinimap.tsx     scroll minimap alongside the message list
   MarkdownBody.tsx    markdown renderer
-  ModelsConfig.tsx    modal for editing models.json (opened from sidebar bottom)
+  ModelsConfig.tsx    modal for editing models.yml (opened from sidebar bottom)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
   FileExplorer.tsx    file tree inside sidebar
@@ -133,7 +133,7 @@ Pi stores toolCall blocks as `{type:"toolCall", id, name, arguments}` but `ToolC
 Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`). For existing sessions, the active preset is inferred on mount via `get_tools` → `getPresetFromTools()`. When tools are fully disabled (`toolNames = []`), `rpc-manager.ts` passes an empty tool allow-list and forces `agent.state.systemPrompt = ""` after startup/reload/resource discovery.
 
 ### Model defaults for new sessions
-`GET /api/models` returns `defaultModel` read from `~/.pi/agent/settings.json`. `ChatWindow` pre-selects this on mount for new sessions.
+`GET /api/models` returns `defaultModel` from OMP Settings under `~/.omp/agent` (config.yml overlays). `ChatWindow` pre-selects this on mount for new sessions.
 
 ### SSE reconnect on page refresh mid-stream
 On `ChatWindow` mount, `GET /api/agent/[id]` is called. If `state.isStreaming === true`, SSE is reconnected automatically. `thinkingLevel` and `isCompacting` are also synced from this response.
@@ -164,7 +164,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - `/api/skills/install` shells through `npx skills add ... --agent pi`; project installs run with the selected cwd.
 
 ### Auth and model config
-- `ModelsConfig` combines models from `~/.pi/agent/models.json` with provider auth status from pi's `AuthStorage`/`ModelRegistry`.
+- `ModelsConfig` combines models from `~/.omp/agent/models.yml` with provider auth status from OMP `AuthStorage`/`ModelRegistry` (via `getOmpRuntime`).
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
@@ -178,7 +178,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ## Pi Session File Format
 
-Location: `~/.pi/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
+Location: `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 
 ```jsonl
 {"type":"session","version":3,"id":"<uuid>","timestamp":"...","cwd":"/path","parentSession":"/abs/path/to/parent.jsonl"}
