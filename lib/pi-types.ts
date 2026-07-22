@@ -1,10 +1,7 @@
-import type {
-  AgentSessionEvent,
-  SessionManager,
-  SettingsManager,
-  SlashCommandInfo,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
+/**
+ * Structural types for the live agent surface used by rpc-manager.
+ * Kept independent of package version churn; OMP AgentSession is the runtime.
+ */
 
 export interface ContextUsage {
   percent: number | null;
@@ -15,6 +12,7 @@ export interface ContextUsage {
 export interface ModelLike {
   id: string;
   provider: string;
+  compat?: { thinkingFormat?: string };
 }
 
 export interface ToolInfo {
@@ -48,27 +46,35 @@ export interface SessionStatsInfo {
   contextUsage?: ContextUsage;
 }
 
+export interface SlashCommandSourceInfo {
+  path?: string;
+  source?: string;
+}
+
+export interface SlashCommandInfo {
+  name: string;
+  description?: string;
+  source: "extension" | "prompt" | "skill" | string;
+  sourceInfo?: SlashCommandSourceInfo;
+}
+
 interface PromptTemplateLike {
   name: string;
   description?: string;
-  sourceInfo: SlashCommandInfo["sourceInfo"];
+  sourceInfo?: SlashCommandSourceInfo;
 }
 
 interface SkillLike {
   name: string;
   description?: string;
-  sourceInfo: SlashCommandInfo["sourceInfo"];
-}
-
-interface ResourceLoaderLike {
-  getSkills(): { skills: SkillLike[] };
+  sourceInfo?: SlashCommandSourceInfo;
+  filePath?: string;
 }
 
 interface ExtensionRunnerLike {
-  getRegisteredCommands(): Array<{
-    invocationName: string;
+  getRegisteredCommands(reserved?: ReadonlySet<string>): Array<{
+    name: string;
     description?: string;
-    sourceInfo: SlashCommandInfo["sourceInfo"];
   }>;
   setUIContext?(uiContext?: unknown, mode?: "tui" | "rpc" | "json" | "print"): void;
 }
@@ -81,6 +87,17 @@ type DialogOptionsLike = {
 type WidgetOptionsLike = {
   placement?: "aboveEditor" | "belowEditor";
 };
+
+/** Minimal Theme surface used by extension UI context. */
+export interface ThemeLike {
+  fg?(color: string, text: string): string;
+  bg?(color: string, text: string): string;
+  bold?(text: string): string;
+  italic?(text: string): string;
+  underline?(text: string): string;
+  inverse?(text: string): string;
+  strikethrough?(text: string): string;
+}
 
 export interface ExtensionUiContextLike {
   select(title: string, options: string[], opts?: DialogOptionsLike): Promise<string | undefined>;
@@ -105,14 +122,18 @@ export interface ExtensionUiContextLike {
   addAutocompleteProvider(): void;
   setEditorComponent(): void;
   getEditorComponent(): undefined;
-  readonly theme: Theme;
-  getAllThemes(): unknown[];
-  getTheme(name: string): undefined;
-  setTheme(theme: unknown): { success: boolean; error?: string };
+  readonly theme: ThemeLike;
+  getAllThemes(): unknown[] | Promise<unknown[]>;
+  getTheme(name: string): undefined | Promise<ThemeLike | undefined>;
+  setTheme(theme: unknown): { success: boolean; error?: string } | Promise<{ success: boolean; error?: string }>;
   getToolsExpanded(): boolean;
   setToolsExpanded(expanded: boolean): void;
 }
 
+/**
+ * Structural view of OMP AgentSession methods used by the web RPC wrapper.
+ * Runtime object is the real AgentSession from createAgentSession().
+ */
 export interface AgentSessionLike {
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
@@ -121,44 +142,58 @@ export interface AgentSessionLike {
   readonly autoCompactionEnabled: boolean;
   readonly autoRetryEnabled: boolean;
   readonly model: ModelLike | undefined;
-  readonly modelRuntime: { getModel: (provider: string, modelId: string) => ModelLike | undefined };
-  readonly sessionManager: SessionManager;
-  readonly settingsManager: SettingsManager;
-  readonly agent: { state?: { systemPrompt?: string; thinkingLevel?: string } };
-  readonly extensionRunner: ExtensionRunnerLike;
+  readonly modelRegistry: { find: (provider: string, modelId: string) => ModelLike | undefined };
+  readonly sessionManager: {
+    getSessionFile(): string | undefined;
+    getSessionDir(): string;
+    getCwd(): string;
+    getHeader(): { cwd?: string; id?: string } | null;
+    getEntry(id: string): { parentId: string | null } | undefined;
+    getEntries(): unknown[];
+    getSessionName(): string | undefined;
+    createBranchedSession(leafId: string): string | undefined;
+    newSession(options?: { parentSession?: string }): Promise<string | undefined> | string | undefined;
+    ensureOnDisk?(): Promise<void>;
+  };
+  readonly settings: unknown;
+  readonly agent: { state?: { systemPrompt?: string | string[]; thinkingLevel?: string }; waitForIdle?: () => Promise<void> };
+  readonly extensionRunner: ExtensionRunnerLike | undefined;
   readonly promptTemplates: readonly PromptTemplateLike[];
-  readonly resourceLoader: ResourceLoaderLike;
+  readonly skills: readonly SkillLike[];
+  readonly thinkingLevel: string | undefined;
+  readonly systemPrompt: string | string[];
+  readonly queuedMessageCount: number;
 
-  readonly bindExtensions?: unknown;
-  reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void>;
-  subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+  subscribe(listener: (event: { type: string; [key: string]: unknown }) => void): () => void;
+  dispose(options?: unknown): Promise<void>;
   prompt(text: string, options?: {
     images?: Array<{ type: "image"; data: string; mimeType: string }>;
     streamingBehavior?: "steer" | "followUp";
     source?: "interactive" | "rpc";
-  }): Promise<void>;
-  abort(): Promise<void>;
+  }): Promise<boolean | void>;
+  abort(options?: { reason?: string }): Promise<void>;
   executeBash(command: string, onChunk?: (chunk: string) => void, options?: { excludeFromContext?: boolean }): Promise<{ output: string; exitCode?: number; cancelled?: boolean; truncated?: boolean; fullOutputPath?: string }>;
   abortBash(): void;
   readonly isBashRunning: boolean;
-  setModel(model: ModelLike): Promise<void>;
+  setModel(model: ModelLike, role?: string, options?: unknown): Promise<{ switched: boolean } | void>;
   navigateTree(targetId: string, options?: { summarize?: boolean }): Promise<NavigateTreeResult>;
-  setThinkingLevel(level: string): void;
+  setThinkingLevel(level: string | undefined, persist?: boolean): void;
   compact(customInstructions?: string): Promise<unknown>;
-  setSessionName(name: string): void;
+  setSessionName(name: string, source?: "auto" | "user"): Promise<boolean> | void;
   getSessionStats(): Omit<SessionStatsInfo, "sessionName">;
   getLastAssistantText(): string | undefined;
   setAutoCompactionEnabled(enabled: boolean): void;
   setAutoRetryEnabled(enabled: boolean): void;
   steer(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
   followUp(text: string, images?: Array<{ type: "image"; data: string; mimeType: string }>): Promise<void>;
-  readonly pendingMessageCount: number;
-  getSteeringMessages(): readonly string[];
-  getFollowUpMessages(): readonly string[];
-  clearQueue(): { steering: string[]; followUp: string[] };
-  getAllTools(): ToolInfo[];
+  getQueuedMessages(): { steering: readonly string[]; followUp: readonly string[] };
+  clearQueue(options?: { forInterrupt?: boolean }): { steering: string[]; followUp: string[] } | void;
+  getAllToolNames(): string[];
+  getToolByName?(name: string): { name: string; description?: string } | undefined;
   getActiveToolNames(): string[];
-  setActiveToolsByName(names: string[]): void;
+  setActiveToolsByName(names: string[]): Promise<void> | void;
   abortCompaction(): void;
   getContextUsage(): ContextUsage | undefined;
+  reload(): Promise<void>;
+  waitForIdle?(): Promise<void>;
 }
