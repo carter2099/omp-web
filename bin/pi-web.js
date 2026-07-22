@@ -1,8 +1,12 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 "use strict";
 
+// Host strategy A (Wave 0): Bun-hosted production launcher.
+// @oh-my-pi/* ships TypeScript package entries; Node cannot strip types under
+// node_modules. This CLI must run under Bun and spawn `next start` with Bun.
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require("path");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -12,6 +16,41 @@ const { parseLaunchOptions } = require("./pi-web-options");
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
+
+/**
+ * Resolve a Bun executable. Prefer the current process when already launched
+ * via `#!/usr/bin/env bun`; otherwise search PATH / common install roots.
+ */
+function resolveBunExecutable() {
+  const execPath = process.execPath || "";
+  const base = path.basename(execPath).toLowerCase();
+  if (base === "bun" || base === "bun.exe" || execPath.includes(`${path.sep}bun`)) {
+    return execPath;
+  }
+
+  const which = spawnSync("which", ["bun"], { encoding: "utf8" });
+  if (which.status === 0) {
+    const found = which.stdout.trim().split("\n")[0];
+    if (found) return found;
+  }
+
+  const candidates = [
+    process.env.BUN_INSTALL && path.join(process.env.BUN_INSTALL, "bin", "bun"),
+    path.join(process.env.HOME || "", ".bun", "bin", "bun"),
+    "/root/.bun/bin/bun",
+    "/usr/local/bin/bun",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  console.error(
+    "pi-web requires Bun (host strategy A). Install Bun and ensure `bun` is on PATH.\n" +
+      "See https://bun.sh — @oh-my-pi packages load as TypeScript and need Bun at runtime."
+  );
+  process.exit(1);
+}
 
 // Resolve next's CLI entry directly to avoid relying on .bin symlinks (which
 // may not exist when installed via npx).
@@ -35,12 +74,12 @@ if (!fs.existsSync(nextDir)) {
   process.exit(1);
 }
 
+const bunBin = resolveBunExecutable();
 const nextArgs = ["start", "-p", port];
 if (hostname) nextArgs.push("-H", hostname);
 
-// Always run next's JS entry with node directly — avoids .bin symlink issues
-// and path-with-spaces problems on Windows when shell: true is used.
-const child = spawn(process.execPath, [nextBin, ...nextArgs], {
+// Always run next's JS entry with Bun — required for host A (OMP TS packages).
+const child = spawn(bunBin, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
   env: { ...process.env },
