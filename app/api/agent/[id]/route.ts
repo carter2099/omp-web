@@ -1,6 +1,42 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath, readSessionHeader } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { redactSecrets } from "@/lib/redact-secrets";
+import { isSubagentCommandError } from "@/lib/subagent-types";
+
+function errorStatusCode(error: unknown): number {
+  if (isSubagentCommandError(error)) {
+    return error.statusCode;
+  }
+  if (typeof error === "object" && error !== null && "statusCode" in error) {
+    const code = (error as { statusCode: unknown }).statusCode;
+    if (code === 400 || code === 404 || code === 500) {
+      return code;
+    }
+  }
+  // Untyped Error for unsupported/unknown command shapes → 400
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (
+      msg.includes("unsupported command")
+      || msg.includes("unknown command")
+      || msg.startsWith("unsupported ")
+      || msg.startsWith("unknown ")
+    ) {
+      return 400;
+    }
+  }
+  return 500;
+}
+
+function errorMessage(error: unknown, status: number): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  // 500 bodies must never leak secrets; redact all client-facing error text.
+  if (status >= 500) {
+    return redactSecrets(raw);
+  }
+  return redactSecrets(raw);
+}
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -9,9 +45,15 @@ export async function POST(
 ) {
   const { id } = await params;
 
+  let body: { type: string; [key: string]: unknown };
   try {
-    const body = await req.json() as { type: string; [key: string]: unknown };
+    body = await req.json() as { type: string; [key: string]: unknown };
+  } catch {
+    // no-excuse-ok: catch — malformed JSON body is a client error
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
+  try {
     // Fast path: already-running session
     const existing = getRpcSession(id);
     if (existing?.isAlive()) {
@@ -31,7 +73,9 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    // no-excuse-ok: catch — HTTP boundary maps typed statusCode to 400/404/500
+    const status = errorStatusCode(error);
+    return NextResponse.json({ error: errorMessage(error, status) }, { status });
   }
 }
 
@@ -51,6 +95,8 @@ export async function GET(
     const state = await session.send({ type: "get_state" });
     return NextResponse.json({ running: true, state });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    // no-excuse-ok: catch — HTTP boundary maps typed statusCode to 400/404/500
+    const status = errorStatusCode(error);
+    return NextResponse.json({ error: errorMessage(error, status) }, { status });
   }
 }
