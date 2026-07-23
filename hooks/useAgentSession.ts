@@ -13,6 +13,21 @@ import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type {
+  RpcSubagentSnapshot,
+  SubagentHistoryRow,
+  SubagentMessagesPage,
+} from "@/lib/subagent-types";
+import {
+  SUBAGENT_CONNECTED_COMMAND_SEQUENCE,
+  applySubagentFrame,
+  emptySubagentMap,
+  listSubagentSnapshots,
+  mergeColdHistory,
+  mergeGetSubagents,
+  type SubagentClientFrame,
+  type SubagentSnapshotMap,
+} from "@/lib/subagent-client-state";
 
 export interface SessionData {
   sessionId: string;
@@ -365,6 +380,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const [subagentMap, setSubagentMap] = useState<SubagentSnapshotMap>(emptySubagentMap);
+  const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
@@ -372,6 +389,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
+  const subagentGenerationRef = useRef(0);
+  const subagentSessionIdRef = useRef<string | null>(session?.id ?? null);
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
@@ -534,6 +553,71 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       firstMessage,
     });
   }, [isNew, newSessionCwd, onSessionCreated]);
+
+  const syncSubagentSessionScope = useCallback((nextSessionId: string | null) => {
+    if (subagentSessionIdRef.current === nextSessionId) return;
+    subagentSessionIdRef.current = nextSessionId;
+    subagentGenerationRef.current += 1;
+    setSubagentMap(emptySubagentMap());
+    setSelectedSubagentId(null);
+  }, []);
+
+  const fetchColdHistory = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const generation = subagentGenerationRef.current;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/subagents`);
+      if (!res.ok) {
+        if (res.status === 404) return;
+        throw new Error(`Cold history HTTP ${res.status}`);
+      }
+      const body: unknown = await res.json();
+      const rows: SubagentHistoryRow[] = Array.isArray(body)
+        ? (body as SubagentHistoryRow[])
+        : Array.isArray((body as { subagents?: unknown }).subagents)
+          ? ((body as { subagents: SubagentHistoryRow[] }).subagents)
+          : [];
+      if (subagentGenerationRef.current !== generation) return;
+      if (sessionIdRef.current !== sid) return;
+      setSubagentMap((prev) => mergeColdHistory(prev, rows));
+    } catch (e) {
+      // no-excuse-ok: catch — cold history is best-effort UI enrichment
+      console.error("Failed to fetch cold subagent history:", e);
+    }
+  }, []);
+
+  const refreshSubagentsOnConnected = useCallback(async (sid: string) => {
+    const generation = subagentGenerationRef.current + 1;
+    subagentGenerationRef.current = generation;
+    try {
+      await sendAgentCommand(sid, {
+        type: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[0].type,
+        level: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[0].level,
+      });
+      if (
+        subagentGenerationRef.current !== generation
+        || sessionIdRef.current !== sid
+      ) {
+        return;
+      }
+      const data = await sendAgentCommand<{ subagents?: RpcSubagentSnapshot[] }>(sid, {
+        type: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[1].type,
+      });
+      if (
+        subagentGenerationRef.current !== generation
+        || sessionIdRef.current !== sid
+      ) {
+        return;
+      }
+      setSubagentMap((prev) => mergeGetSubagents(prev, data?.subagents ?? []));
+      // Live merge first so cold fill cannot clobber registry truth.
+      await fetchColdHistory();
+    } catch (e) {
+      // no-excuse-ok: catch — SSE reconnect path; next connect retries
+      console.error("Failed to refresh subagents on connected:", e);
+    }
+  }, [fetchColdHistory]);
 
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -877,6 +961,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
+      case "connected": {
+        const sid =
+          (typeof event.sessionId === "string" && event.sessionId.length > 0
+            ? event.sessionId
+            : null)
+          ?? sessionIdRef.current;
+        if (sid) {
+          syncSubagentSessionScope(sid);
+          void refreshSubagentsOnConnected(sid);
+        }
+        break;
+      }
+      case "subagent_lifecycle":
+      case "subagent_progress":
+      case "subagent_event": {
+        // Child frames only — must not flip parent streaming / agent_end.
+        if (sessionIdRef.current !== subagentSessionIdRef.current) break;
+        const payload = event.payload;
+        if (payload === null || typeof payload !== "object") break;
+        const frame = {
+          type: event.type,
+          payload,
+        } as SubagentClientFrame;
+        setSubagentMap((prev) => applySubagentFrame(prev, frame));
+        break;
+      }
       case "agent_start":
         agentRunningRef.current = true;
         setAgentRunning(true);
@@ -1022,8 +1132,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [
+    addNotice,
+    finishPromptWithoutStream,
+    handleExtensionUiRequest,
+    loadSession,
+    onAgentEnd,
+    refreshSubagentsOnConnected,
+    syncSubagentSessionScope,
+  ]);
   handleAgentEventRef.current = handleAgentEvent;
+
+  const selectSubagent = useCallback((subagentId: string | null) => {
+    setSelectedSubagentId(subagentId);
+  }, []);
+
+  const loadSubagentMessages = useCallback(async (selector: {
+    subagentId?: string;
+    sessionFile?: string;
+    fromByte?: number;
+  }): Promise<SubagentMessagesPage> => {
+    const sid = sessionIdRef.current;
+    if (!sid) {
+      throw new Error("No active session for get_subagent_messages");
+    }
+    return sendAgentCommand<SubagentMessagesPage>(sid, {
+      type: "get_subagent_messages",
+      ...selector,
+    });
+  }, []);
+
+  const subagents = useMemo(
+    () => listSubagentSnapshots(subagentMap),
+    [subagentMap],
+  );
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
@@ -1627,6 +1769,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,
+    // SubAgent panel surface for Todo 6
+    subagents,
+    subagentMap,
+    selectedSubagentId,
+    selectSubagent,
+    loadSubagentMessages,
+    fetchColdHistory,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
