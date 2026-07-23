@@ -89,3 +89,90 @@ export interface PluginsResponse {
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
 }
+
+/** Identity for one MCP inventory row (may share name with shadowed peers). */
+export type McpRowId = {
+  name: string;
+  scope: "user" | "project" | "external";
+  sourcePath: string;
+  providerId: string;
+  shadowed: boolean;
+};
+
+export type McpTransportType = "stdio" | "http" | "sse";
+
+/** Redacted outbound MCP server DTO — never includes raw secrets. */
+export type McpServerInfo = McpRowId & {
+  transport: McpTransportType;
+  command?: string;
+  args?: string[];
+  argsRedacted: boolean;
+  cwd?: string;
+  url?: string;
+  urlRedacted: boolean;
+  envKeys: string[];
+  hasEnv: boolean;
+  headerKeys: string[];
+  hasHeaders: boolean;
+  hasAuth: boolean;
+  hasOauth: boolean;
+  timeout?: number;
+  /** Configured as enabled (not denylisted / settings-disabled / enabled:false). */
+  configuredEnabled: boolean;
+  /** Would connect at runtime (false when shadowed). */
+  effectiveForRuntime: boolean;
+  lastProbe?: McpProbeResult;
+};
+
+export type McpProbeStatus = "ok" | "fail" | "timeout" | "fail_clean";
+
+export type McpProbeResult = {
+  status: McpProbeStatus;
+  toolCount?: number;
+  tools?: string[];
+  error?: string;
+  durationMs: number;
+};
+
+export type McpWritableScope = "user" | "project";
+
+export type McpServerConfigInput = {
+  type?: McpTransportType;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  auth?: {
+    type: "oauth" | "apikey";
+    credentialId?: string;
+    tokenUrl?: string;
+    clientId?: string;
+    clientSecret?: string;
+    resource?: string;
+  };
+  oauth?: {
+    clientId?: string;
+    clientSecret?: string;
+    redirectUri?: string;
+    callbackPort?: number;
+    callbackPath?: string;
+    prompt?: string;
+  };
+  enabled?: boolean;
+  timeout?: number;
+};
+
+export type McpAction =
+  | "add"
+  | "update"
+  | "remove"
+  | "enable"
+  | "disable"
+  | "probe";
+
+export type McpListResponse = {
+  servers: McpServerInfo[];
+  diagnostics: PluginDiagnostic[];
+};
