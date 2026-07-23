@@ -9,6 +9,7 @@ import {
 } from "@/lib/file-fuzzy";
 import { FolderIcon, getFileIcon } from "./FileIcons";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useTranslations } from "next-intl";
 
 export interface AttachedImage {
   data: string;   // base64, no prefix
@@ -79,26 +80,6 @@ function compareModelOptions(a: ModelOption, b: ModelOption): number {
 }
 
 const THINKING_LEVELS = ["auto", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-const THINKING_LEVEL_LABEL: Record<typeof THINKING_LEVELS[number], string> = {
-  auto: "自动",
-  off: "关闭",
-  minimal: "最低",
-  low: "低",
-  medium: "中",
-  high: "高",
-  xhigh: "超高",
-  max: "最大",
-};
-const THINKING_LEVEL_DESC: Record<typeof THINKING_LEVELS[number], string> = {
-  auto: "使用 pi 默认设置",
-  off: "关闭推理",
-  minimal: "最低强度推理",
-  low: "低强度推理",
-  medium: "中等强度推理",
-  high: "高强度推理",
-  xhigh: "超高强度推理",
-  max: "最大强度推理",
-};
 
 function formatTokenCount(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
@@ -114,22 +95,11 @@ type SlashCommandPaletteItem = SlashCommandInfo | {
 
 type SlashCommandSource = SlashCommandPaletteItem["source"];
 
-const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
-  { name: "compact", description: "压缩上下文，可附带指令", source: "builtin" },
-  { name: "reload", description: "重新加载扩展、技能、提示词和工具", source: "builtin" },
-  { name: "name", description: "设置会话显示名称", source: "builtin" },
-  { name: "session", description: "显示会话消息、令牌和费用统计", source: "builtin" },
-  { name: "copy", description: "复制上一条助手消息", source: "builtin" },
-];
+
 
 const SLASH_SOURCES: SlashCommandSource[] = ["builtin", "extension", "prompt", "skill"];
 
-const SLASH_SOURCE_GROUP_LABEL: Record<SlashCommandSource, string> = {
-  builtin: "内置",
-  extension: "扩展",
-  prompt: "提示词",
-  skill: "技能",
-};
+
 
 const SLASH_SOURCE_ORDER: Record<SlashCommandSource, number> = {
   builtin: 0,
@@ -165,38 +135,6 @@ function revokeImagePreview(image: AttachedImage): void {
   }
 }
 
-function QueuedMessageRow({ kind, text }: { kind: "steer" | "follow-up"; text: string }) {
-  return (
-    <div
-      title={text}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "3px 10px",
-        fontSize: 12,
-        color: "var(--text-muted)",
-        minWidth: 0,
-      }}
-    >
-      <span
-        style={{
-          flexShrink: 0,
-          fontSize: 10,
-          fontFamily: "var(--font-mono)",
-          padding: "1px 7px",
-          borderRadius: 999,
-          border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
-          color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
-        }}
-      >
-        {kind === "steer" ? "引导" : "跟进"}
-      </span>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
-    </div>
-  );
-}
-
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSend, onAbort, onSteer, onFollowUp, isStreaming, model, isAutoModelSelection, modelNames, modelList, onModelChange,
   onCompact, onAbortCompaction, isCompacting, compactError, compactResult, toolPreset, onToolPresetChange,
@@ -209,6 +147,73 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   draftKey,
   cwd,
 }: Props, ref) {
+  const t = useTranslations();
+
+  const THINKING_LEVEL_KEY: Record<string, string> = {
+    auto: "thinking.auto",
+    off: "thinking.off",
+    minimal: "thinking.minimal",
+    low: "thinking.low",
+    medium: "thinking.medium",
+    high: "thinking.high",
+    xhigh: "thinking.extraHigh",
+    max: "thinking.maximum",
+  };
+  const THINKING_DESC_KEY: Record<string, string> = {
+    auto: "thinking.descAuto",
+    off: "thinking.descOff",
+    minimal: "thinking.descMinimal",
+    low: "thinking.descLow",
+    medium: "thinking.descMedium",
+    high: "thinking.descHigh",
+    xhigh: "thinking.descExtraHigh",
+    max: "thinking.descMaximum",
+  };
+  const BUILTIN_SLASH_COMMANDS: SlashCommandPaletteItem[] = [
+    { name: "compact", description: t("slashCommands.compact"), source: "builtin" },
+    { name: "reload", description: t("slashCommands.reload"), source: "builtin" },
+    { name: "name", description: t("slashCommands.name"), source: "builtin" },
+    { name: "session", description: t("slashCommands.session"), source: "builtin" },
+    { name: "copy", description: t("slashCommands.copy"), source: "builtin" },
+  ];
+  const SLASH_SOURCE_GROUP_LABEL: Record<SlashCommandSource, string> = {
+    builtin: t("chatInput.slashSourceBuiltin"),
+    extension: t("chatInput.slashSourceExtension"),
+    prompt: t("chatInput.slashSourcePrompt"),
+    skill: t("chatInput.slashSourceSkill"),
+  };
+  const QueuedMessageRow = ({ kind, text }: { kind: "steer" | "follow-up"; text: string }) => {
+    return (
+      <div
+        title={text}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "3px 10px",
+          fontSize: 12,
+          color: "var(--text-muted)",
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 10,
+            fontFamily: "var(--font-mono)",
+            padding: "1px 7px",
+            borderRadius: 999,
+            border: `1px solid ${kind === "steer" ? "color-mix(in srgb, var(--accent) 45%, transparent)" : "var(--border)"}`,
+            color: kind === "steer" ? "var(--accent)" : "var(--text-dim)",
+          }}
+        >
+          {kind === "steer" ? t("chatInput.steer") : t("chatInput.followUp")}
+        </span>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</span>
+      </div>
+    );
+  };
+
   const isMobile = useIsMobile();
   const [value, setValue] = useState(() => (draftKey ? getDraft(draftKey)?.value ?? "" : ""));
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -453,8 +458,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   })();
 
   const slashCommandCountLabel = filteredSlashCommands.length === 1
-    ? (slashQuery ? "1 个匹配项" : "1 个命令")
-    : `${filteredSlashCommands.length} 个${slashQuery ? "匹配项" : "命令"}`;
+    ? (slashQuery ? t("chatInput.oneMatch") : t("chatInput.oneCommand"))
+    : slashQuery ? t("chatInput.nMatches", { count: filteredSlashCommands.length }) : t("chatInput.nCommands", { count: filteredSlashCommands.length });
   const hasInputText = Boolean(value.trim());
   const canQueueStreamingMessage = hasInputText && attachedImages.length === 0;
 
@@ -841,17 +846,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     ? Math.max(0, compactResult.tokensBefore - compactResult.estimatedTokensAfter)
     : 0;
   const compactVerb = compactResult?.reason && compactResult.reason !== "manual"
-    ? `${compactResult.reason} 压缩完成`
-    : "压缩完成";
+    ? t("chatInput.compactReasonCompleted", { reason: compactResult.reason })
+    : t("chatInput.compactCompleted");
   const compactResultText = compactResult
-    ? `${compactVerb}：${formatTokenCount(compactResult.tokensBefore)} → ${formatTokenCount(compactResult.estimatedTokensAfter)} 个令牌（节省 ${formatTokenCount(compactSavedTokens)}）`
+    ? t("chatInput.compactResult", { verb: compactVerb, before: formatTokenCount(compactResult.tokensBefore), after: formatTokenCount(compactResult.estimatedTokensAfter), saved: formatTokenCount(compactSavedTokens) })
     : null;
   const thinkingDisplayLabel = (() => {
     const lvl = thinkingLevel ?? "auto";
-    if (lvl === "auto" || !thinkingLevelMap) return THINKING_LEVEL_LABEL[lvl];
-    return thinkingLevelMap[lvl] ?? THINKING_LEVEL_LABEL[lvl];
+    if (lvl === "auto" || !thinkingLevelMap) return t(THINKING_LEVEL_KEY[lvl]);
+    return thinkingLevelMap[lvl] ?? t(THINKING_LEVEL_KEY[lvl]);
   })();
-  const toolPresetLabel = toolPreset === "none" ? "关闭" : toolPreset === "full" ? "全部" : "默认";
+  const toolPresetLabel = toolPreset === "none" ? t("chatInput.toolPresetOff") : toolPreset === "full" ? t("chatInput.toolPresetFull") : t("chatInput.toolPresetDefault");
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -929,12 +934,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 textTransform: "uppercase",
                 letterSpacing: 0.4,
               }}>
-                队列中 · {(queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0)}
+                {t("chatInput.queueLabel", { count: (queuedMessages?.steering.length ?? 0) + (queuedMessages?.followUp.length ?? 0) })}
               </span>
               {onRecallQueue && (
                 <button
                   onClick={onRecallQueue}
-                  title="移除所有排队消息，并放回输入框中编辑"
+                  title={t("chatInput.recallQueue")}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -962,7 +967,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <polyline points="9 14 4 9 9 4" />
                     <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
                   </svg>
-                  放回输入框
+                  {t("chatInput.recallToInput")}
                 </button>
               )}
             </div>
@@ -986,7 +991,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
               <path d="M3 3v5h5" />
             </svg>
-            正在重试（{retryInfo.attempt}/{retryInfo.maxAttempts}）…{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
+            {t("chatInput.retrying", { attempt: retryInfo.attempt, maxAttempts: retryInfo.maxAttempts })}{retryInfo.errorMessage && <span style={{ opacity: 0.7, marginLeft: 4 }}>— {retryInfo.errorMessage}</span>}
           </div>
         )}
         {compactResultText && (
@@ -1062,13 +1067,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   color: "var(--text-dim)",
                 }}
               >
-                <span>{slashCommandsLoading ? "正在加载命令…" : `斜杠命令 · ${slashCommandCountLabel}`}</span>
+                <span>{slashCommandsLoading ? t("chatInput.loadingCommands") : `${t("chatInput.slashCommands")} · ${slashCommandCountLabel}`}</span>
                 <span style={{ fontFamily: "var(--font-mono)" }}>Tab / Enter</span>
               </div>
               <div style={{ maxHeight: "calc(min(56vh, 460px) - 34px)", overflowY: "auto", padding: 10 }}>
                 {!slashCommandsLoading && filteredSlashCommands.length === 0 ? (
                   <div style={{ padding: "2px 2px 4px", fontSize: 12, color: "var(--text-dim)" }}>
-                    未找到扩展、提示词或技能命令
+                    {t("chatInput.noCommandsFound")}
                   </div>
                 ) : (
                   groupedSlashCommands.map((group) => (
@@ -1165,11 +1170,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           )}
           {atMenuOpen && atQuery !== null && (() => {
             const indexLoading = fileIndexLoading && (!fileIndex || fileIndex.cwd !== cwd);
-            const matchCountLabel = atMatches.length === 1 ? "1 个匹配项" : `${atMatches.length} 个匹配项`;
+            const matchCountLabel = atMatches.length === 1 ? t("chatInput.oneFileMatch") : t("chatInput.nFileMatches", { count: atMatches.length });
             // With a truncated index, local results are provisional — the
             // debounced server search over the full listing replaces them.
             const truncatedHint = fileIndex?.truncated && !serverResultInUse
-              ? (atQuery.query ? " · 正在搜索所有文件…" : " · 索引已截断")
+              ? (atQuery.query ? t("chatInput.searchingTruncated") : t("chatInput.truncatedIndex"))
               : "";
             return (
               <div
@@ -1201,15 +1206,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 >
                   <span>
                     {indexLoading
-                      ? "正在加载文件…"
-                      : `文件 · ${matchCountLabel}${truncatedHint}`}
+                      ? t("chatInput.loadingFiles")
+                      : t("chatInput.fileMatchCount", { label: matchCountLabel, hint: truncatedHint })}
                   </span>
                   <span style={{ fontFamily: "var(--font-mono)" }}>Tab / Enter</span>
                 </div>
                 <div style={{ maxHeight: "calc(min(48vh, 400px) - 34px)", overflowY: "auto", padding: 4 }}>
                   {!indexLoading && atMatches.length === 0 ? (
                     <div style={{ padding: "6px 8px", fontSize: 12, color: "var(--text-dim)" }}>
-                      {needsServerSearch && !serverResultInUse ? "正在搜索…" : "没有匹配的文件"}
+                      {needsServerSearch && !serverResultInUse ? t("chatInput.searching") : t("chatInput.noMatchingFiles")}
                     </div>
                   ) : (
                     atMatches.map((entry, index) => {
@@ -1300,9 +1305,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPaste={handlePaste}
             placeholder={
               isStreaming && (onSteer || onFollowUp)
-                ? "立即引导 / 将跟进消息加入队列…"
-                : isStreaming ? "代理正在运行…"
-                : "输入消息…输入 / 使用命令，输入 @ 引用文件"
+                ? t("chatInput.placeholderStreaming")
+                : isStreaming ? t("chatInput.placeholderStreamingOnly")
+                : t("chatInput.placeholderIdle")
             }
             rows={1}
             style={{
@@ -1327,7 +1332,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => sendQueued("steer")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "代理运行时无法将图片附件加入队列" : "中断当前运行并立即插入此消息"}
+                  title={attachedImages.length ? t("chatInput.cannotQueueImages") : t("chatInput.steerInterrupt")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -1343,14 +1348,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 1 L9 5 L5 9" /><line x1="1" y1="5" x2="9" y2="5" />
                   </svg>
-                  引导
+                  {t("chatInput.steerButton")}
                 </button>
               )}
               {onFollowUp && (
                 <button
                   onClick={() => sendQueued("followup")}
                   disabled={!canQueueStreamingMessage}
-                  title={attachedImages.length ? "代理运行时无法将图片附件加入队列" : "代理完成后发送此消息"}
+                  title={attachedImages.length ? t("chatInput.cannotQueueImages") : t("chatInput.followUpQueues")}
                   style={{
                     display: "flex", alignItems: "center", gap: 5,
                     padding: "7px 12px",
@@ -1367,7 +1372,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     <line x1="5" y1="1" x2="5" y2="6" /><polyline points="2.5 3.5 5 1 7.5 3.5" />
                     <line x1="2" y1="9" x2="8" y2="9" />
                   </svg>
-                  跟进
+                  {t("chatInput.followUpButton")}
                 </button>
               )}
             </div>
@@ -1396,7 +1401,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <line x1="2" y1="7" x2="11" y2="7" />
                 <polyline points="7.5 3 12 7 7.5 11" />
               </svg>
-              发送
+              {t("chatInput.send")}
             </button>
           )}
           </div>
@@ -1405,7 +1410,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         {/* Bash mode status label */}
         {bashMode && (
           <div className="text-xs px-2 py-1" style={{ color: bashExcluded ? "var(--text-muted)" : "var(--accent)", marginTop: 4 }}>
-            Shell · {bashExcluded ? "输出仅保留在本地" : "输出将发送给模型"}
+            Shell · {bashExcluded ? t("chatInput.shellOutputLocalOnly") : t("chatInput.shellOutputSentToModel")}
           </div>
         )}
 
@@ -1423,7 +1428,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isStreaming}
-              title="添加图片"
+              title={t("chatInput.attachImage")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
@@ -1577,8 +1582,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isMobile && (
               <button
                 type="button"
-                title={controlsMenuOpen ? undefined : "更多控制项"}
-                aria-label="更多控制项"
+                title={controlsMenuOpen ? undefined : t("chatInput.moreControls")}
+                aria-label={t("chatInput.moreControlsAria")}
                 aria-expanded={controlsMenuOpen}
                 aria-hidden={controlsMenuOpen || undefined}
                 tabIndex={controlsMenuOpen ? -1 : undefined}
@@ -1615,7 +1620,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   e.currentTarget.style.color = "var(--text-muted)";
                 }}
               >
-                更多
+                {t("chatInput.more")}
               </button>
             )}
             <div style={{
@@ -1644,8 +1649,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setThinkingDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                  title={`调整推理级别：${thinkingDisplayLabel}`}
-                  aria-label="调整推理级别"
+                  title={t("chatInput.adjustThinkingLevel", { label: thinkingDisplayLabel })}
+                  aria-label={t("chatInput.adjustThinkingLevelAria")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -1690,9 +1695,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                       return availableThinkingLevels.includes(lvl);
                     }).map((lvl) => {
                       const isActive = (thinkingLevel ?? "auto") === lvl;
-                      const desc = THINKING_LEVEL_DESC[lvl];
+                      const desc = t(THINKING_DESC_KEY[lvl]);
                       const mappedVal = (lvl !== "auto" && thinkingLevelMap) ? thinkingLevelMap[lvl] : undefined;
-                      const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : THINKING_LEVEL_LABEL[lvl];
+                      const displayLabel = (mappedVal != null && mappedVal !== lvl) ? mappedVal : t(THINKING_LEVEL_KEY[lvl]);
                       const showOriginal = mappedVal != null && mappedVal !== lvl;
                       return (
                         <button
@@ -1731,8 +1736,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setToolDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                  title={`调整工具预设：${toolPresetLabel}`}
-                  aria-label="调整工具预设"
+                  title={t("chatInput.adjustToolPreset", { label: toolPresetLabel })}
+                  aria-label={t("chatInput.adjustToolPresetAria")}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -1772,8 +1777,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     {TOOL_PRESETS.map((lvl) => {
                       const preset = TOOL_PRESET_MAP[lvl];
                       const isActive = (toolPreset ?? "default") === preset;
-                      const label = lvl === "off" ? "关闭" : lvl === "default" ? "默认" : "全部";
-                      const desc = lvl === "off" ? "无工具，仅可读取" : lvl === "default" ? "4 个内置工具" : "所有内置工具";
+                      const label = lvl === "off" ? t("chatInput.toolPresetOff") : lvl === "default" ? t("chatInput.toolPresetDefault") : t("chatInput.toolPresetFull");
+                      const desc = lvl === "off" ? t("chatInput.toolPresetOffDesc") : lvl === "default" ? t("chatInput.toolPresetDefaultDesc") : t("chatInput.toolPresetFullDesc");
                       return (
                         <button
                           key={lvl}
@@ -1842,16 +1847,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     e.currentTarget.style.background = isCompacting ? "rgba(239,68,68,0.08)" : "none";
                     e.currentTarget.style.color = isCompacting ? "#ef4444" : "var(--text-muted)";
                   }}
-                  title={isCompacting ? "停止压缩" : "压缩上下文"}
-                  aria-label={isCompacting ? "停止压缩" : "压缩上下文"}
+                  title={isCompacting ? t("chatInput.stopCompaction") : t("chatInput.compactingContext")}
+                  aria-label={isCompacting ? t("chatInput.stopCompaction") : t("chatInput.compactingContext")}
                 >
                   {isCompacting ? (
-                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>正在压缩…</span>}</>
+                    <><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor" /></svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chatInput.compacting")}</span>}</>
                   ) : (
                     <><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="4 14 10 14 10 20" /><polyline points="20 10 14 10 14 4" />
                       <line x1="10" y1="14" x2="3" y2="21" /><line x1="21" y1="3" x2="14" y2="10" />
-                    </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>压缩</span>}</>
+                    </svg>{(!isMobile || controlsMenuOpen) && <span style={{ whiteSpace: "nowrap" }}>{t("chatInput.compact")}</span>}</>
                   )}
                 </button>
               </div>
@@ -1860,7 +1865,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isStreaming && (
               <button
                 onClick={onAbort}
-                title="停止代理"
+                title={t("chatInput.stopAgent")}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px",
@@ -1880,15 +1885,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                   <rect x="1.5" y="1.5" width="7" height="7" rx="1.5" fill="currentColor" />
                 </svg>
-                停止
+                {t("chatInput.stop")}
               </button>
             )}
 
             {onSoundToggle !== undefined && (
               <button
                 onClick={onSoundToggle}
-                title={soundEnabled ? "关闭完成提示音" : "开启完成提示音"}
-                aria-label={soundEnabled ? "关闭完成提示音" : "开启完成提示音"}
+                title={soundEnabled ? t("chatInput.soundOff") : t("chatInput.soundOn")}
+                aria-label={soundEnabled ? t("chatInput.soundOff") : t("chatInput.soundOn")}
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                   width: isMobile ? 32 : 32,
@@ -1931,8 +1936,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {isMobile && controlsMenuOpen && (
               <button
                 type="button"
-                title="收起控制项"
-                aria-label="收起控制项"
+                title={t("chatInput.collapseControls")}
+                aria-label={t("chatInput.collapseControlsAria")}
                 aria-expanded={true}
                 onClick={() => {
                   setToolDropdownOpen(false);

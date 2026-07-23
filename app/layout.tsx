@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Noto_Sans_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocaleFromHeaders, loadMessages } from "@/lib/i18n";
 import "katex/dist/katex.min.css";
 import "./globals.css";
 
@@ -10,17 +13,21 @@ const notoSansMono = Noto_Sans_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pi Web - pi 编程代理",
-  description: "pi 编程代理的 Web 界面",
+  title: "Pi Web",
+  description: "Web interface for the pi coding agent",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const h = await headers();
+  const locale = getLocaleFromHeaders(h);
+  const messages = await loadMessages(locale);
+
   return (
-    <html lang="zh-CN" translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
+    <html lang={locale} translate="no" className={`${notoSansMono.variable} notranslate`} suppressHydrationWarning>
       <head>
         <meta name="google" content="notranslate" />
         <script
@@ -30,7 +37,9 @@ export default function RootLayout({
         />
       </head>
       <body translate="no" className="notranslate" style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
-        {children}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
       </body>
     </html>
   );

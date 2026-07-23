@@ -19,6 +19,7 @@ import { buildAtMentionText, buildFileAtMentionsText } from "@/lib/file-fuzzy";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { useTranslations } from "next-intl";
 
 type SessionCopyField = "file" | "id";
 type AutoNameStatus =
@@ -28,6 +29,7 @@ type AutoNameStatus =
   | { kind: "error"; message: string };
 
 export function AppShell() {
+  const t = useTranslations();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isDark, toggleTheme } = useTheme();
@@ -379,7 +381,7 @@ export function AppShell() {
 
   const activeFileTab = fileTabs.find((t) => t.id === activeFileTabId) ?? null;
   const activeCwdName = activeCwd ? getFileName(activeCwd) || activeCwd : null;
-  const windowTitle = activeCwdName ? `${activeCwdName} - Pi Web` : "Pi Web";
+  const windowTitle = activeCwdName ? t("app.windowTitle", { name: activeCwdName }) : t("app.title");
 
   useEffect(() => {
     const syncWindowTitle = () => {
@@ -413,7 +415,7 @@ export function AppShell() {
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
           {
-            label: "模型",
+            label: t("sidebar.models"),
             onClick: () => setModelsConfigOpen(true),
             disabled: false,
             icon: (
@@ -427,7 +429,7 @@ export function AppShell() {
             ),
           },
           {
-            label: "技能",
+            label: t("sidebar.skills"),
             onClick: () => setSkillsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
@@ -439,7 +441,7 @@ export function AppShell() {
             ),
           },
           {
-            label: "插件",
+            label: t("sidebar.plugins"),
             onClick: () => setPluginsConfigOpen(true),
             disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
             icon: (
@@ -585,8 +587,8 @@ export function AppShell() {
         <div ref={topBarRef} style={{ display: "flex", alignItems: "center", flexShrink: 0, borderBottom: "1px solid var(--border)", height: 36, background: "var(--bg-panel)" }}>
           <button
             onClick={handleSidebarToggle}
-            title={sidebarOpen ? "隐藏侧栏" : "显示侧栏"}
-            aria-label={sidebarOpen ? "隐藏侧栏" : "显示侧栏"}
+            title={sidebarOpen ? t("sidebar.hideSidebar") : t("sidebar.showSidebar")}
+            aria-label={sidebarOpen ? t("sidebar.hideSidebar") : t("sidebar.showSidebar")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               width: 36, height: 36, padding: 0,
@@ -611,8 +613,8 @@ export function AppShell() {
               const rect = e.currentTarget.getBoundingClientRect();
               toggleTheme({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
             }}
-            title={isDark ? "切换到浅色模式" : "切换到深色模式"}
-            aria-label={isDark ? "切换到浅色模式" : "切换到深色模式"}
+            title={isDark ? t("theme.switchToLight") : t("theme.switchToDark")}
+            aria-label={isDark ? t("theme.switchToLight") : t("theme.switchToDark")}
             aria-pressed={isDark}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
@@ -642,8 +644,8 @@ export function AppShell() {
               <button
                 onClick={handleViewFullHistory}
                 disabled={!selectedSession}
-                title={selectedSession ? "查看完整历史记录" : "会话保存后即可查看完整历史记录"}
-                aria-label="查看完整历史记录"
+                title={selectedSession ? t("fullHistory.view") : t("fullHistory.unavailable")}
+                aria-label={t("fullHistory.view")}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -690,7 +692,7 @@ export function AppShell() {
                   <path d="M3 3v5h5" />
                   <path d="M12 7v5l3 2" />
                 </svg>
-                {!isMobile && <span>完整历史</span>}
+                {!isMobile && <span>{t("fullHistory.label")}</span>}
               </button>
               {(() => {
                 const hasMessages = Boolean(
@@ -701,19 +703,19 @@ export function AppShell() {
                 const isSuccess = autoNameStatus.kind === "success";
                 const isError = autoNameStatus.kind === "error";
                 const label = autoNameStatus.kind === "naming"
-                  ? "正在生成…"
+                  ? t("autoName.generating")
                   : isSuccess
-                    ? "标题已更新"
+                    ? t("autoName.updated")
                     : isError
-                      ? "生成失败"
-                      : "生成标题";
+                      ? t("autoName.failed")
+                      : t("autoName.generate");
                 const title = !selectedSession
-                  ? "会话保存后即可生成标题"
+                  ? t("autoName.unavailable")
                   : !hasMessages
-                    ? "请先发送消息，再为会话命名"
+                    ? t("autoName.sendFirst")
                     : isError
                       ? autoNameStatus.message
-                      : "生成会话标题";
+                      : t("autoName.generateTitle");
 
                 return (
                   <button
@@ -778,8 +780,8 @@ export function AppShell() {
               <button
                 ref={systemBtnRef}
                 onClick={() => toggleTopPanel("system")}
-                title="系统提示词"
-                aria-label="系统提示词"
+                title={t("systemPrompt.label")}
+                aria-label={t("systemPrompt.label")}
                 aria-pressed={activeTopPanel === "system"}
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
@@ -801,13 +803,13 @@ export function AppShell() {
                   <line x1="8" y1="13" x2="16" y2="13" />
                   <line x1="8" y1="17" x2="13" y2="17" />
                 </svg>
-                {!isMobile && <span>系统</span>}
+                {!isMobile && <span>{t("systemPrompt.shortLabel")}</span>}
               </button>
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
           {showChat && (sessionStats || contextUsage) && (() => {
-            const t = sessionStats?.tokens;
+            const tokens = sessionStats?.tokens;
             const c = sessionStats?.cost ?? 0;
             const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
             const costStr = c > 0 ? (c >= 0.01 ? `$${c.toFixed(2)}` : `<$0.01`) : null;
@@ -822,16 +824,16 @@ export function AppShell() {
             }
 
             const tooltipParts: string[] = [];
-            if (t) {
-              tooltipParts.push(`输入：${t.input.toLocaleString()}`);
-              tooltipParts.push(`输出：${t.output.toLocaleString()}`);
-              tooltipParts.push(`缓存读取：${t.cacheRead.toLocaleString()}`);
-              tooltipParts.push(`缓存写入：${t.cacheWrite.toLocaleString()}`);
-              if (c > 0) tooltipParts.push(`费用：$${c.toFixed(4)}`);
+            if (tokens) {
+              tooltipParts.push(t("sessionStats.tooltipInput", { count: tokens.input.toLocaleString() }));
+              tooltipParts.push(t("sessionStats.tooltipOutput", { count: tokens.output.toLocaleString() }));
+              tooltipParts.push(t("sessionStats.tooltipCacheRead", { count: tokens.cacheRead.toLocaleString() }));
+              tooltipParts.push(t("sessionStats.tooltipCacheWrite", { count: tokens.cacheWrite.toLocaleString() }));
+              if (c > 0) tooltipParts.push(t("sessionStats.tooltipCost", { amount: c.toFixed(4) }));
             }
             if (contextUsage?.contextWindow) {
               const pct = contextUsage.percent;
-              tooltipParts.push(`上下文：${pct !== null ? pct.toFixed(1) + "%" : "未知"}，共 ${contextUsage.contextWindow.toLocaleString()} 个令牌`);
+              tooltipParts.push(t("sessionStats.tooltipContext", { percent: pct !== null ? pct.toFixed(1) + "%" : t("sessionStats.unknown"), total: contextUsage.contextWindow.toLocaleString() }));
             }
             const tooltip = tooltipParts.join("  |  ");
 
@@ -839,8 +841,8 @@ export function AppShell() {
               <button
                 type="button"
                 onClick={() => toggleTopPanel("session")}
-                title={tooltip || "会话信息"}
-                aria-label="会话信息"
+                title={tooltip || t("sessionInfo.title")}
+                aria-label={t("sessionInfo.title")}
                 aria-pressed={activeTopPanel === "session"}
                 style={{
                   marginLeft: "auto",
@@ -864,28 +866,28 @@ export function AppShell() {
                     <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
                   </svg>
                 )}
-                {!isMobile && t && t.input > 0 && (
+                {!isMobile && tokens && tokens.input > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="8.5" x2="5" y2="1.5" /><polyline points="2 4 5 1.5 8 4" />
                     </svg>
-                    {fmt(t.input)}
+                    {fmt(tokens.input)}
                   </span>
                 )}
-                {!isMobile && t && t.output > 0 && (
+                {!isMobile && tokens && tokens.output > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
                     </svg>
-                    {fmt(t.output)}
+                    {fmt(tokens.output)}
                   </span>
                 )}
-                {!isMobile && t && t.cacheRead > 0 && (
+                {!isMobile && tokens && tokens.cacheRead > 0 && (
                   <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M8.5 5a3.5 3.5 0 1 1-1-2.45" /><polyline points="6.5 1.5 8.5 2.5 7.5 4.5" />
                     </svg>
-                    {fmt(t.cacheRead)}
+                    {fmt(tokens.cacheRead)}
                   </span>
                 )}
                 {!isMobile && costStr && (
@@ -935,11 +937,11 @@ export function AppShell() {
                     </div>
                   ) : systemPrompt === "" ? (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      系统提示词为空（工具已禁用）
+                      {t("systemPrompt.empty")}
                     </div>
                   ) : (
                     <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      发送消息后加载系统提示词
+                      {t("systemPrompt.loadAfterMessage")}
                     </div>
                   )}
                 </div>
@@ -953,29 +955,29 @@ export function AppShell() {
                 }}>
                   {sessionStats ? (() => {
                     const sessionRows = [
-                      ...(sessionStats.sessionName ? [{ label: "名称", value: sessionStats.sessionName, copyField: null }] : []),
-                      { label: "文件", value: sessionStats.sessionFile ?? "内存中", copyField: "file" as const },
-                      { label: "ID", value: sessionStats.sessionId, copyField: "id" as const },
+                      ...(sessionStats.sessionName ? [{ label: t("sessionInfo.name"), value: sessionStats.sessionName, copyField: null }] : []),
+                      { label: t("sessionInfo.file"), value: sessionStats.sessionFile ?? t("sessionInfo.inMemory"), copyField: "file" as const },
+                      { label: t("sessionInfo.id"), value: sessionStats.sessionId, copyField: "id" as const },
                     ];
                     const messageRows = [
-                      ["用户", sessionStats.userMessages.toLocaleString()],
-                      ["助手", sessionStats.assistantMessages.toLocaleString()],
-                      ["工具调用", sessionStats.toolCalls.toLocaleString()],
-                      ["工具结果", sessionStats.toolResults.toLocaleString()],
-                      ["总计", sessionStats.totalMessages.toLocaleString()],
+                      [t("sessionStats.user"), sessionStats.userMessages.toLocaleString()],
+                      [t("sessionStats.assistant"), sessionStats.assistantMessages.toLocaleString()],
+                      [t("sessionStats.toolCalls"), sessionStats.toolCalls.toLocaleString()],
+                      [t("sessionStats.toolResults"), sessionStats.toolResults.toLocaleString()],
+                      [t("sessionStats.total"), sessionStats.totalMessages.toLocaleString()],
                     ];
                     const tokenRows = [
-                      ["输入", sessionStats.tokens.input.toLocaleString()],
-                      ["输出", sessionStats.tokens.output.toLocaleString()],
-                      ...(sessionStats.tokens.cacheRead > 0 ? [["缓存读取", sessionStats.tokens.cacheRead.toLocaleString()]] : []),
-                      ...(sessionStats.tokens.cacheWrite > 0 ? [["缓存写入", sessionStats.tokens.cacheWrite.toLocaleString()]] : []),
-                      ["总计", sessionStats.tokens.total.toLocaleString()],
+                      [t("sessionStats.input"), sessionStats.tokens.input.toLocaleString()],
+                      [t("sessionStats.output"), sessionStats.tokens.output.toLocaleString()],
+                      ...(sessionStats.tokens.cacheRead > 0 ? [[t("sessionStats.cacheRead"), sessionStats.tokens.cacheRead.toLocaleString()]] : []),
+                      ...(sessionStats.tokens.cacheWrite > 0 ? [[t("sessionStats.cacheWrite"), sessionStats.tokens.cacheWrite.toLocaleString()]] : []),
+                      [t("sessionStats.total"), sessionStats.tokens.total.toLocaleString()],
                     ];
                     const ctx = contextUsage ?? sessionStats.contextUsage;
                     const formatCompact = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
                     const extraTokenRows = [
-                      ...(sessionStats.cost > 0 ? [["费用", `$${sessionStats.cost.toFixed(4)}`]] : []),
-                      ...(ctx?.contextWindow ? [["上下文", `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
+                      ...(sessionStats.cost > 0 ? [[t("sessionStats.cost"), `$${sessionStats.cost.toFixed(4)}`]] : []),
+                      ...(ctx?.contextWindow ? [[t("sessionStats.context"), `${ctx.percent !== null ? `${ctx.percent.toFixed(1)}%` : "?"} / ${formatCompact(ctx.contextWindow)}`]] : []),
                     ];
                     const section = (
                       title: string,
@@ -1012,7 +1014,7 @@ export function AppShell() {
                       return (
                         <button
                           type="button"
-                          title={copied ? "已复制" : `复制${field === "file" ? "文件路径" : "会话 ID"}`}
+                          title={copied ? t("sessionInfo.copied") : (field === "file" ? t("sessionInfo.copyFilePath") : t("sessionInfo.copySessionId"))}
                           onClick={() => handleCopySessionField(field, value)}
                           style={{
                             alignSelf: "start",
@@ -1056,7 +1058,7 @@ export function AppShell() {
                     };
                     const sessionInfoSection = (
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>会话信息</div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>{t("sessionInfo.title")}</div>
                         <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", columnGap: 12, rowGap: 8, alignItems: "start" }}>
                           {sessionRows.map((row) => (
                             <div key={`session-info:${row.label}`} style={{ display: "contents" }}>
@@ -1087,13 +1089,13 @@ export function AppShell() {
                         fontFamily: "var(--font-mono)",
                       }}>
                         {sessionInfoSection}
-                        {section("消息", messageRows)}
-                        {section("令牌", [...tokenRows, ...extraTokenRows], "right", true)}
+                        {section(t("sessionStats.messages"), messageRows)}
+                        {section(t("sessionStats.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
                       </div>
                     );
                   })() : (
                     <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      发送消息或运行 /session 以加载会话信息
+                      {t("sessionInfo.sendToLoad")}
                     </div>
                   )}
                 </div>
@@ -1125,7 +1127,7 @@ export function AppShell() {
           ) : showPlaceholder ? (
             activeCwd ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
-                从侧栏选择一个会话
+                {t("placeholder.selectSession")}
               </div>
             ) : (
               <div style={{ position: "absolute", top: 12, left: 12, display: "flex", alignItems: "flex-start", gap: 8, userSelect: "none", pointerEvents: "none" }}>
@@ -1133,10 +1135,10 @@ export function AppShell() {
                   <line x1="20" y1="12" x2="4" y2="12" /><polyline points="10 6 4 12 10 18" />
                 </svg>
                 <div>
-                  <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>开始使用</div>
+                  <div style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", marginBottom: 8 }}>{t("placeholder.getStarted")}</div>
                   <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.8 }}>
-                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>1.</span>从侧栏选择项目目录<br />
-                    <span style={{ color: "var(--text-dim)", marginRight: 6 }}>2.</span>通过底部的<strong style={{ color: "var(--text)" }}>模型</strong>按钮添加模型
+                    {t("placeholder.step1")}<br />
+                    {t("placeholder.step2")}
                   </div>
                 </div>
               </div>
@@ -1184,7 +1186,7 @@ export function AppShell() {
             />
           ) : (
             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-dim)", fontSize: 12 }}>
-              未打开文件
+              {t("placeholder.noFileOpen")}
             </div>
           )}
         </div>
@@ -1193,8 +1195,8 @@ export function AppShell() {
     {/* File panel toggle — always visible at top-right */}
     <button
       onClick={() => setRightPanelOpen((v) => !v)}
-      title={rightPanelOpen ? "隐藏文件面板" : "显示文件面板"}
-      aria-label={rightPanelOpen ? "隐藏文件面板" : "显示文件面板"}
+      title={rightPanelOpen ? t("filePanel.hide") : t("filePanel.show")}
+      aria-label={rightPanelOpen ? t("filePanel.hide") : t("filePanel.show")}
       style={{
         position: "fixed", top: 0, right: 0, zIndex: 300,
         display: "flex", alignItems: "center", justifyContent: "center",

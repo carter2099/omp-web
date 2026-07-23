@@ -1,5 +1,6 @@
 "use client";
 import { registerAbortHandler } from "@/hooks/useKeyboardShortcuts";
+import { useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage } from "@/lib/types";
 import { normalizeCustomPanelLines, parseAnsiLine } from "@/lib/ansi";
@@ -37,17 +38,17 @@ interface Props {
   onOpenFile?: (filePath: string) => void;
 }
 
-function phaseLabel(phase: AgentPhase): string {
+function phaseLabel(phase: AgentPhase, t: (key: string, params?: Record<string, any>) => string): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "正在运行工具…";
-    if (names.length === 1) return `正在运行 ${names[0]}…`;
-    if (names.length <= 3) return `正在运行 ${names.join("、")}…`;
-    return `正在运行 ${names.slice(0, 2).join("、")}（另有 ${names.length - 2} 个）…`;
+    if (names.length === 0) return t("chatWindow.runningTools");
+    if (names.length === 1) return t("chatWindow.runningTool", { name: names[0] });
+    if (names.length <= 3) return t("chatWindow.runningTool", { name: names.join(", ") });
+    return t("chatWindow.runningToolsMore", { names: names.slice(0, 2).join(", "), n: names.length - 2 });
   }
-  if (phase?.kind === "waiting_model") return "正在等待模型…";
-  if (phase?.kind === "running_command") return "正在运行命令…";
-  return "正在思考…";
+  if (phase?.kind === "waiting_model") return t("chatWindow.waitingModel");
+  if (phase?.kind === "running_command") return t("chatWindow.runningCommand");
+  return t("chatWindow.thinking");
 }
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -98,10 +99,10 @@ function withAssistantBlocks(
   return next;
 }
 
-function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
+function ProcessDetailsGroup({ messageCount, toolCallCount, children, t }: { messageCount: number; toolCallCount: number; children: ReactNode; t?: (key: string, params?: Record<string, any>) => string }) {
   const [expanded, setExpanded] = useState(false);
-  const parts = ["过程详情", `${messageCount} 条消息`];
-  if (toolCallCount > 0) parts.push(`${toolCallCount} 次工具调用`);
+  const parts = [t ? t("chatWindow.processDetails") : "Process details", t ? t("chatWindow.nMessages", { count: messageCount }) : `${messageCount} messages`];
+  if (toolCallCount > 0) parts.push(t ? t("chatWindow.nToolCalls", { count: toolCallCount }) : `${toolCallCount} tool calls`);
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -123,7 +124,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? "收起过程详情" : "展开过程详情"}
+        title={expanded ? (t ? t("chatWindow.collapseDetails") : "Collapse") : (t ? t("chatWindow.expandDetails") : "Expand")}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
@@ -142,6 +143,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
 }
 
 export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreated, onSessionForked, modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsChange, onSessionStatsPanelOpen, onContextUsageChange, onOpenFile }: Props) {
+  const t = useTranslations();
   const { soundEnabled, onSoundToggle, playDoneSound, unlockAudio } = useAudio();
   const isMobile = useIsMobile();
 
@@ -334,7 +336,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        正在加载会话…
+        {t("chatWindow.loadingSession")}
       </div>
     );
   }
@@ -422,10 +424,10 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  web <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
+                  {t("chatWindow.webVersion")} <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0"}</span>
                 </span>
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  pi <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
+                  {t("chatWindow.piVersion")} <span style={{ color: "var(--text)" }}>v{process.env.NEXT_PUBLIC_PI_VERSION ?? "0.0.0"}</span>
                 </span>
               </div>
             </div>
@@ -591,6 +593,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     <ProcessDetailsGroup
                       messageCount={processCount}
                       toolCallCount={countToolCalls(messages, visibleProcessIndices) + countToolCallBlocks(finalSplit.processBlocks)}
+                      t={t}
                     >
                       {visibleProcessIndices.map((processIdx) => renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }))}
                       {finalProcessMessage && renderMessage(finalAssistantIdx, { attachRef: false, keyPrefix: "process-final", messageOverride: finalProcessMessage, showTimestamp: false })}
@@ -619,7 +622,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 <>
                   {hasMore && (
                     <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                      向上滚动以加载更早的消息（已隐藏 {startIndex} 条）
+                      {t("chatWindow.scrollUp", { count: startIndex })}
                     </div>
                   )}
                   {rendered.slice(startIndex)}
@@ -632,13 +635,13 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
+                <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase, t)}</span>
               </div>
             )}
 
             {bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">正在运行命令…</span>
+                <span className="animate-[pulse_1.5s_infinite]">{t("chatWindow.runningCommand")}</span>
               </div>
             )}
 
@@ -824,6 +827,7 @@ function ExtensionDialog({
   onRespond: (request: ExtensionDialogRequest, response: { value: string } | { confirmed: boolean } | { cancelled: true }) => void;
 }) {
   const [value, setValue] = useState(request.method === "editor" ? request.prefill ?? "" : "");
+  const t = useTranslations("chatWindow");
 
   useEffect(() => {
     setValue(request.method === "editor" ? request.prefill ?? "" : "");
@@ -864,7 +868,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>扩展请求</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{t("extensionRequest")}</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -955,7 +959,7 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            取消
+            {t("cancel")}
           </button>
           {request.method === "confirm" ? (
             <button
@@ -969,7 +973,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              确认
+              {t("confirm")}
             </button>
           ) : request.method !== "select" ? (
             <button
@@ -983,7 +987,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              提交
+              {t("submit")}
             </button>
           ) : null}
         </div>
@@ -1009,6 +1013,7 @@ function ExtensionCustomPanel({
   request: ExtensionCustomRequest;
   onInput: (request: ExtensionCustomRequest, data: string) => void;
 }) {
+  const t = useTranslations("chatWindow");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
   const displayLines = normalizeCustomPanelLines(request.lines);
@@ -1050,7 +1055,7 @@ function ExtensionCustomPanel({
       >
         <textarea
           ref={inputRef}
-          aria-label="扩展终端输入"
+          aria-label={t("extensionTerminalInput")}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
@@ -1097,7 +1102,7 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>扩展面板</div>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>{t("extensionPanel")}</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{
@@ -1110,7 +1115,7 @@ function ExtensionCustomPanel({
               fontSize: 12,
             }}
           >
-            关闭
+            {t("cancel")}
           </button>
         </div>
         <pre
