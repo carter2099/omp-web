@@ -286,11 +286,17 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 // ── Provider detail ───────────────────────────────────────────────────────────
 
-function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
+function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefresh }: {
   name: string; provider: ProviderEntry;
   onChange: (p: ProviderEntry) => void; onRename: (n: string) => void; onDelete: () => void;
+  onRefresh: () => void;
 }) {
   const [editingName, setEditingName] = useState(name);
+  const [syncOpen, setSyncOpen] = useState(true);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
+
   useEffect(() => setEditingName(name), [name]);
   const set = <K extends keyof ProviderEntry>(k: K, v: ProviderEntry[K]) => onChange({ ...provider, [k]: v });
 
@@ -298,6 +304,55 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
     if (!provider.api) onChange({ ...provider, api: "openai-completions" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider.api]);
+
+  const handleSync = async () => {
+    setSyncLoading(true);
+    setSyncError(null);
+    setSyncSuccess(null);
+    try {
+      const targetBaseUrl = provider.baseUrl || "";
+      const res = await fetch("/api/models-config/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerName: name,
+          baseUrl: targetBaseUrl || "http://192.168.77.88/v1",
+          apiKey: provider.apiKey ?? ""
+        }),
+      });
+      const d = await res.json() as {
+        success?: boolean;
+        providerName?: string;
+        modelCount?: number;
+        byApi?: Record<string, number>;
+        skipped?: number;
+        error?: string;
+      };
+      if (!res.ok || d.error || !d.success) {
+        setSyncError(d.error ?? `HTTP ${res.status}`);
+      } else {
+        onRefresh();
+        const by = d.byApi ?? {};
+        const parts = [
+          by["anthropic-messages"] != null ? `messages ${by["anthropic-messages"]}` : null,
+          by["openai-responses"] != null ? `responses ${by["openai-responses"]}` : null,
+          by["openai-completions"] != null ? `completions ${by["openai-completions"]}` : null,
+        ].filter(Boolean);
+        const skipped = d.skipped != null && d.skipped > 0 ? `，跳过 ${d.skipped}` : "";
+        setSyncSuccess(
+          parts.length > 0
+            ? `已同步 ${d.modelCount ?? 0} 个模型（${parts.join(" / ")}${skipped}）`
+            : `已同步 ${d.modelCount ?? 0} 个模型${skipped}`,
+        );
+      }
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const isAiWay = name.toLowerCase().includes("aiway") || (provider.baseUrl && provider.baseUrl.includes("aiway"));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -321,7 +376,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
 
       <Field label="基础 URL">
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
-          placeholder="https://api.example.com/v1" mono />
+          placeholder="https://your-aiway-host/v1" mono />
       </Field>
 
       <Field label="API 密钥">
@@ -335,6 +390,75 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete }: {
       <Field label="API">
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
+
+      {/* AI Way Sync Section */}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }}>
+        <div
+          onClick={() => setSyncOpen(!syncOpen)}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+        >
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            从网关同步模型 (AI Way)
+          </div>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{
+              color: "var(--text-dim)",
+              transform: syncOpen ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 0.15s ease",
+            }}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </div>
+
+        {syncOpen && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            <span style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.4 }}>
+              可自动获取并填充当前网关底下的所有可用模型。
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                onClick={handleSync}
+                disabled={syncLoading}
+                style={{
+                  padding: "6px 12px",
+                  background: "var(--accent)",
+                  border: "none",
+                  borderRadius: 5,
+                  color: "#fff",
+                  cursor: syncLoading ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  opacity: syncLoading ? 0.7 : 1,
+                }}
+              >
+                {syncLoading ? "正在同步…" : "同步模型"}
+              </button>
+              {syncSuccess && (
+                <span style={{ fontSize: 12, color: "#4ade80", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  {syncSuccess}
+                </span>
+              )}
+              {syncError && (
+                <span style={{ fontSize: 12, color: "#ef4444" }}>
+                  {syncError}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1297,6 +1421,16 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
       .catch(() => {});
   }, []);
 
+  const loadModelsConfig = useCallback(() => {
+    fetch("/api/models-config")
+      .then((r) => r.json())
+      .then((d: ModelsJson) => {
+        const normalized = d.providers ? d : { ...d, providers: {} };
+        setConfig(normalized);
+      })
+      .catch(() => setConfig({ providers: {} }));
+  }, []);
+
   useEffect(() => {
     fetch("/api/models-config")
       .then((r) => r.json())
@@ -1433,6 +1567,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
           onChange={(p) => updateProvider(selection.name, p)}
           onRename={(n) => renameProvider(selection.name, n)}
           onDelete={() => deleteProvider(selection.name)}
+          onRefresh={loadModelsConfig}
         />
       );
     }
@@ -1580,7 +1715,31 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
+            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px", display: "flex", flexDirection: "column", gap: 6 }}>
+              <button onClick={() => {
+                let finalName = "aiway";
+                let n = 1;
+                while (config.providers?.[finalName]) finalName = `aiway-${n++}`;
+                setConfig((prev) => ({
+                  ...prev,
+                  providers: {
+                    ...(prev.providers ?? {}),
+                    [finalName]: {
+                      api: "openai-completions"
+                    }
+                  }
+                }));
+                setSelection({ type: "provider", name: finalName });
+              }} style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
+                color: "var(--accent)", cursor: "pointer", fontSize: 12, fontWeight: 600,
+              }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "none"; }}
+              >
+                + AI Way
+              </button>
               <button onClick={() => setPickerOpen(true)} style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
