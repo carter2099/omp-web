@@ -13,6 +13,7 @@ import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { SubagentPanel } from "./SubagentPanel";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -20,6 +21,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { resolveSubagentFocusId } from "@/lib/subagent-client-state";
 
 interface Props {
   session: SessionInfo | null;
@@ -175,6 +177,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isAutoModelSelection,
     agentPhase,
     isNew,
+    subagents,
+    selectedSubagentId,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
@@ -182,11 +186,16 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    selectSubagent,
+    loadSubagentMessages,
+    fetchColdHistory,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  const [panelOpen, setPanelOpen] = useState(false);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -523,6 +532,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    onFocusSubagent={(hint) => {
+                      const focusedId = resolveSubagentFocusId(subagents, hint);
+                      selectSubagent(focusedId);
+                      setPanelOpen(true);
+                    }}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -668,6 +682,42 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
+          />
+        )}
+        {!panelOpen && !isNew && (session?.id || sessionIdRef.current) && !isMobile && (
+          <button
+            type="button"
+            onClick={() => {
+              setPanelOpen(true);
+              void fetchColdHistory();
+            }}
+            title="子代理 / 历史"
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 30,
+              padding: "4px 10px",
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            历史
+          </button>
+        )}
+        {panelOpen && (
+          <SubagentPanel
+            subagents={subagents}
+            selectedSubagentId={selectedSubagentId}
+            onSelectSubagent={selectSubagent}
+            loadSubagentMessages={loadSubagentMessages}
+            fetchColdHistory={fetchColdHistory}
+            onClose={() => setPanelOpen(false)}
           />
         )}
       </div>
