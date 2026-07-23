@@ -40,14 +40,14 @@ interface Props {
 function phaseLabel(phase: AgentPhase): string {
   if (phase?.kind === "running_tools") {
     const names = phase.tools.map((t) => t.name);
-    if (names.length === 0) return "正在运行工具…";
-    if (names.length === 1) return `正在运行 ${names[0]}…`;
-    if (names.length <= 3) return `正在运行 ${names.join("、")}…`;
-    return `正在运行 ${names.slice(0, 2).join("、")}（另有 ${names.length - 2} 个）…`;
+    if (names.length === 0) return "Running tools…";
+    if (names.length === 1) return `Running ${names[0]}…`;
+    if (names.length <= 3) return `Running ${names.join(", ")}…`;
+    return `Running ${names.slice(0, 2).join(", ")} (+${names.length - 2} more)…`;
   }
-  if (phase?.kind === "waiting_model") return "正在等待模型…";
-  if (phase?.kind === "running_command") return "正在运行命令…";
-  return "正在思考…";
+  if (phase?.kind === "waiting_model") return "Waiting for model…";
+  if (phase?.kind === "running_command") return "Running command…";
+  return "Thinking…";
 }
 
 const CHAT_MINIMAP_WIDTH = 36;
@@ -100,8 +100,8 @@ function withAssistantBlocks(
 
 function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messageCount: number; toolCallCount: number; children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
-  const parts = ["过程详情", `${messageCount} 条消息`];
-  if (toolCallCount > 0) parts.push(`${toolCallCount} 次工具调用`);
+  const parts = ["Process details", `${messageCount} messages`];
+  if (toolCallCount > 0) parts.push(`${toolCallCount} tool calls`);
 
   return (
     <div style={{ marginBottom: 14 }}>
@@ -123,7 +123,7 @@ function ProcessDetailsGroup({ messageCount, toolCallCount, children }: { messag
           fontSize: 12,
           textAlign: "left",
         }}
-        title={expanded ? "收起过程详情" : "展开过程详情"}
+        title={expanded ? "Collapse details" : "Expand details"}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="4 2.5 7.5 6 4 9.5" />
@@ -160,7 +160,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     onAgentEnd?.();
   }, [onAgentEnd]);
 
-  // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
+  // Stabilize onEditContent reference, working with React.memo to prevent history message re-renders
   const handleEditContent = useCallback((content: string) => {
     chatInputRef?.current?.insertIfEmpty(content);
   }, [chatInputRef]);
@@ -334,7 +334,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
-        正在加载会话…
+        Loading session…
       </div>
     );
   }
@@ -619,7 +619,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                 <>
                   {hasMore && (
                     <div ref={sentinelRef} className="py-3 text-center text-xs text-text-muted">
-                      向上滚动以加载更早的消息（已隐藏 {startIndex} 条）
+                      Scroll up to load earlier messages ({startIndex} hidden)
                     </div>
                   )}
                   {rendered.slice(startIndex)}
@@ -638,7 +638,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
             {bashRunning && !pendingBash && (
               <div className="py-2 text-[13px] text-text-muted">
-                <span className="animate-[pulse_1.5s_infinite]">正在运行命令…</span>
+                <span className="animate-[pulse_1.5s_infinite]">Running command…</span>
               </div>
             )}
 
@@ -864,7 +864,7 @@ function ExtensionDialog({
       >
         <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
           <div style={{ color: "var(--text)", fontSize: 14, fontWeight: 650 }}>{request.title}</div>
-          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>扩展请求</div>
+          <div style={{ marginTop: 3, color: "var(--text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>Extension request</div>
         </div>
 
         <div style={{ padding: 14 }}>
@@ -955,7 +955,7 @@ function ExtensionDialog({
               cursor: "pointer",
             }}
           >
-            取消
+            Cancel
           </button>
           {request.method === "confirm" ? (
             <button
@@ -969,7 +969,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              确认
+              Confirm
             </button>
           ) : request.method !== "select" ? (
             <button
@@ -983,7 +983,7 @@ function ExtensionDialog({
                 cursor: "pointer",
               }}
             >
-              提交
+              Submit
             </button>
           ) : null}
         </div>
@@ -1050,7 +1050,7 @@ function ExtensionCustomPanel({
       >
         <textarea
           ref={inputRef}
-          aria-label="扩展终端输入"
+          aria-label="Extension terminal input"
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
@@ -1097,7 +1097,7 @@ function ExtensionCustomPanel({
           }}
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>扩展面板</div>
+          <div style={{ color: "var(--text)", fontSize: 13, fontWeight: 650 }}>Extension panel</div>
           <button
             onClick={() => onInput(request, "\x03")}
             style={{
@@ -1110,7 +1110,7 @@ function ExtensionCustomPanel({
               fontSize: 12,
             }}
           >
-            关闭
+            Close
           </button>
         </div>
         <pre

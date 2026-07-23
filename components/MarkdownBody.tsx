@@ -171,10 +171,10 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
     <button
       onClick={() => setShowPreview((v) => !v)}
       disabled={isStreaming}
-      title={isStreaming ? "流式输出结束后可预览" : (showPreview ? "显示 Mermaid 源码" : "预览 Mermaid 图表")}
+      title={isStreaming ? "Preview available after streaming ends" : (showPreview ? "Show Mermaid source" : "Preview Mermaid diagram")}
       className={["markdown-code-action", showPreview ? "is-active" : ""].filter(Boolean).join(" ")}
     >
-      {showPreview ? "源码" : "预览"}
+      {showPreview ? "Source" : "Preview"}
     </button>
   );
 
@@ -184,9 +184,9 @@ function MermaidBlock({ code, isStreaming }: { code: string; isStreaming?: boole
 
   const body =
     failedKey === currentKey ? (
-      <div className="mermaid-block mermaid-block-error">Mermaid 图表无效</div>
+      <div className="mermaid-block mermaid-block-error">Invalid Mermaid diagram</div>
     ) : !svg || renderedKey !== currentKey ? (
-      <div className="mermaid-block mermaid-block-loading" aria-label="正在渲染 Mermaid 图表" />
+      <div className="mermaid-block mermaid-block-loading" aria-label="Rendering Mermaid diagram" />
     ) : (
       <div
         className="mermaid-block"
@@ -226,7 +226,7 @@ function CodeBlock({ code, lang, headerAction }: { code: string; lang: string; h
             onClick={copy}
             className="markdown-code-action"
           >
-            {copied ? "已复制" : "复制"}
+            {copied ? "Copied" : "Copy"}
           </button>
         </div>
       </div>

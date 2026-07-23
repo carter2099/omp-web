@@ -25,7 +25,7 @@
     "package.json"
   ],
   "scripts": {
-    "dev": "bun run next dev -p 30141",
+    "dev": "bun run next dev --webpack -p 30141",
     "build": "bun --bun ./node_modules/next/dist/bin/next build --webpack",
     "start": "bun run next start -p 30141",
     "prepack": "node -e \"const fs=require('fs');if(!fs.existsSync('.next/BUILD_ID')){console.error('prepack: missing .next build artifacts — run npm run build first');process.exit(1)}\"",
