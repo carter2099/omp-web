@@ -18,6 +18,7 @@ import {
 	Settings,
 	type AuthStorage,
 } from "@oh-my-pi/pi-coding-agent";
+import { initializeWithSettings } from "@oh-my-pi/pi-coding-agent/discovery";
 
 export type OmpRuntime = {
 	readonly agentDir: string;
@@ -30,6 +31,11 @@ export type OmpRuntime = {
 	/** Clear all per-cwd Settings caches for this agentDir (after settings disk writes). */
 	invalidateSettings(): Promise<void>;
 };
+
+/** Apply Settings.disabledProviders to OMP's process-global discovery denylist. */
+export function applyDiscoverySettings(settings: Settings): void {
+	initializeWithSettings(settings);
+}
 
 type ExclusiveRunner = {
 	runExclusive<T>(fn: () => Promise<T>): Promise<T>;
