@@ -14,9 +14,9 @@ export interface ToolEntry {
 export type ToolPreset = "none" | "default" | "full";
 
 export const PRESET_NONE: string[] = [];
-export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write"];
-/** Full built-in coding set commonly exposed in the UI (essential + search). */
-export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "glob"];
+export const PRESET_DEFAULT: string[] = ["read", "bash", "edit", "write", "task"];
+/** Full built-in coding set commonly exposed in the UI (essential + search + subagent task). */
+export const PRESET_FULL: string[] = ["bash", "read", "edit", "write", "grep", "glob", "task"];
 
 const BUILTIN_TOOL_NAMES = new Set(PRESET_FULL);
 
