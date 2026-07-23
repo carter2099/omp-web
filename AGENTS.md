@@ -222,3 +222,36 @@ Location: `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+---
+
+## SubAgents (子代理) Architecture
+
+### SubAgent vs Fork
+- **Fork** (新建会话): Creates a completely independent new `.jsonl` session file, copying history up to the fork point. Shown as a separate child row in the sidebar session tree.
+- **SubAgent** (子代理): Transient helper agents spawned by the parent via the `task` tool. They run asynchronously as background processes. Their transcripts and progress live within the parent session's *artifacts directory* (a sub-directory named after the parent session file without the `.jsonl` extension). They are **not** mixed into the sidebar fork tree.
+
+### Lifecycle & Idle Timeout Boundary
+- **Detached Sizing**: Live subagents run in the background. The parent wrapper `isRunning()` must return `true` if any child status is live (non-terminal: `running` or `pending`).
+- **Idle Preservation**: Any subagent frame (`subagent_lifecycle`, `subagent_progress`, `subagent_event`) received resets the parent wrapper's 10-minute idle timer.
+- **Sidebar Badges**: Status transitions that change "any live children?" trigger `notifyRunningChange()` to keep sidebar badges updated while only subagents are working.
+
+### Security & Path Policy (Always-Assert)
+- **Realpath Containment**: No raw filesystem reads are allowed. After resolving a session path using `resolveSessionFile`, we strictly assert `assertSubagentSessionFileAllowed(parentSessionFile, resolvedPath)` to verify that the resolved path is located strictly inside the parent artifacts folder (`realpath(parentSessionFile.slice(0, -6) + path.sep)`).
+- **History List Walker**: The metadata walker `listSubagentHistory` scans the artifacts directory, resolves and asserts containment on each `.jsonl` *before* opening it, and only reads minimal header/status metadata. It **never** uses `collectSubSessions()` which opens files unscoped.
+- **transcript read cap**: `get_subagent_messages` reads a maximum of `SUBAGENT_TRANSCRIPT_MAX_BYTES = 1_048_576` (1 MiB) per page. Returns `{ nextByte, eof, content, reset }` for byte-cursor paging.
+
+### Commands & HTTP Status Mappings
+
+| Command / API | HTTP Code | Cause / Details |
+|---|---|---|
+| `set_subagent_subscription` | **200** / **400** | Sets subscription level (`off`, `progress`, `events`). 400 for bad level. |
+| `get_subagents` | **200** | Returns live subagent snapshots array. |
+| `get_subagent_messages` | **200** / **400** / **404** / **500** | Paged transcript reading. 400 for path escape or bad `fromByte`. 404 for missing file. 500 for unexpected I/O. |
+| `list_subagent_history` / `GET /api/sessions/[id]/subagents` | **200** / **404** | Metadata rows for cold history. 404 if parent session missing. Empty array if artifacts missing. |
+
+### Task Tool Preset & Panel
+- **Tool Enablement**: `"task"` is included in `PRESET_DEFAULT` and `PRESET_FULL`. Non-empty custom tool sets always retain `"task"` so subagents can be spawned.
+- **Message Card**: Rendered in `MessageView` when toolName is `"task"`, showing description and execution status.
+- **Card/Panel Correlation**: Task card passes `toolCallId` plus task-result details (`sessionFile` / `results[].id` agent ids). Panel focus matches live by `parentToolCallId`, else cold/history by `sessionFile` or `agentId`, then first row.
+- **Chinese UI Translation**: Panel and cards use: `子代理`, `进度`, `进行中`, `已完成`, `失败`, `已中止`, `打开对话` (task card button), `历史` (panel section + chrome toggle). Cold history loads via `GET /api/sessions/[id]/subagents` on panel open / SSE connect and merges with live snapshots by `sessionFile`/`agentId`; transcript open prefers `sessionFile` for cold rows.
