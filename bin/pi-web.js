@@ -79,10 +79,11 @@ const nextArgs = ["start", "-p", port];
 if (hostname) nextArgs.push("-H", hostname);
 
 // Always run next's JS entry with Bun — required for host A (OMP TS packages).
+// PI_WEB_PKG_DIR lets the MCP probe worker resolve under global/npx installs.
 const child = spawn(bunBin, [nextBin, ...nextArgs], {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env },
+  env: { ...process.env, PI_WEB_PKG_DIR: pkgDir },
 });
 
 let browserOpened = false;
