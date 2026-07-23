@@ -31,7 +31,7 @@ import {
 	resetMcpProbeMutexesForTests,
 	type ProbeMcpOptions,
 } from "@/lib/mcp-probe";
-import { getOmpRuntime } from "@/lib/omp-runtime";
+import { applyDiscoverySettings, getOmpRuntime } from "@/lib/omp-runtime";
 
 import "@oh-my-pi/pi-coding-agent/discovery";
 
@@ -196,6 +196,7 @@ function mergeSecretPreserve(
 export async function listMcpServers(cwd: string): Promise<McpListResponse> {
 	const runtime = await getOmpRuntime();
 	const settings = await runtime.getSettingsForCwd(cwd);
+	applyDiscoverySettings(settings);
 	const disabledExt = new Set(settings.get("disabledExtensions") ?? []);
 	const userPath = getMCPConfigPath("user", cwd);
 	const [disabledList, enabledList] = await Promise.all([

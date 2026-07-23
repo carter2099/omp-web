@@ -21,7 +21,7 @@ import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-in
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { getOmpRuntime } from "./omp-runtime";
+import { applyDiscoverySettings, getOmpRuntime } from "./omp-runtime";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -1057,6 +1057,7 @@ export async function startRpcSession(
     await initTheme();
     const runtime = await getOmpRuntime();
     const settings = await runtime.getSettingsForCwd(cwd);
+    applyDiscoverySettings(settings);
 
     const sessionManager = sessionFile
       ? await SessionManager.open(sessionFile)
