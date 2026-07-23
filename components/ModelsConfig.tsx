@@ -352,7 +352,9 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
     }
   };
 
-  const isAiWay = name.toLowerCase().includes("aiway") || (provider.baseUrl && provider.baseUrl.includes("aiway"));
+  const isAiWay =
+    name.toLowerCase().includes("aiway")
+    || Boolean(provider.baseUrl && /aiway/i.test(provider.baseUrl));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -376,7 +378,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
 
       <Field label="基础 URL">
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
-          placeholder="https://your-aiway-host/v1" mono />
+          placeholder={isAiWay ? "https://your-aiway-host/v1" : "https://api.example.com/v1"} mono />
       </Field>
 
       <Field label="API 密钥">
@@ -391,7 +393,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
         <Select value={provider.api ?? "openai-completions"} onChange={(v) => set("api", v)} options={API_OPTIONS} required />
       </Field>
 
-      {/* AI Way Sync Section */}
+      {isAiWay && (
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }}>
         <div
           onClick={() => setSyncOpen(!syncOpen)}
@@ -459,6 +461,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -1266,12 +1269,13 @@ interface AddProviderPickerProps {
   onSelectOAuth: (id: string) => void;
   onSelectApiKey: (id: string) => void;
   onAddCustom: () => void;
+  onAddAiWay: () => void;
   onClose: () => void;
 }
 
 function AddProviderPicker({
   oauthProviders, apiKeyProviders,
-  onSelectOAuth, onSelectApiKey, onAddCustom, onClose,
+  onSelectOAuth, onSelectApiKey, onAddCustom, onAddAiWay, onClose,
 }: AddProviderPickerProps) {
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1282,9 +1286,12 @@ function AddProviderPicker({
 
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && (!q || p.name.toLowerCase().includes(q)));
   const availableApiKey = apiKeyProviders.filter((p) => !p.configured && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
-  const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q);
+  const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q)
+    || "自定义".includes(q) || "兼容".includes(q);
+  const showAiWay = !q || "aiway".includes(q) || "ai way".includes(q) || "ai-way".includes(q)
+    || "gateway".includes(q) || "网关".includes(q) || "ai way".includes(q);
 
-  const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0);
+  const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0) + (showAiWay ? 1 : 0);
 
   const cardStyle: React.CSSProperties = {
     display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
@@ -1329,8 +1336,24 @@ function AddProviderPicker({
             <div style={{ padding: "20px 0", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>没有匹配的提供商</div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 8 }}>
-              {showCustom && (
+              {(showCustom || showAiWay) && (
                 <div style={{ gridColumn: "1 / -1", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>自定义</div>
+              )}
+              {showAiWay && (
+                <button
+                  onClick={() => { onAddAiWay(); onClose(); }}
+                  style={cardStyle}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--bg-panel)"; }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>AI Way</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>网关端点 · 可从 /v1/models 同步</div>
+                  </div>
+                  <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 10, fontWeight: 700, color: "var(--accent)" }}>
+                    AW
+                  </span>
+                </button>
               )}
               {showCustom && (
                 <button
@@ -1352,7 +1375,7 @@ function AddProviderPicker({
               )}
 
               {availableOAuth.length > 0 && (
-                <div style={{ gridColumn: "1 / -1", paddingTop: showCustom ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>订阅</div>
+                <div style={{ gridColumn: "1 / -1", paddingTop: (showCustom || showAiWay) ? 6 : 0, fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>订阅</div>
               )}
               {availableOAuth.map((p) => (
                 <button key={p.id} onClick={() => { onSelectOAuth(p.id); onClose(); }}
@@ -1451,6 +1474,22 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
     let n = 1;
     while (config.providers?.[finalName]) finalName = `new-provider-${n++}`;
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
+    setSelection({ type: "provider", name: finalName });
+  }, [config.providers]);
+
+  const addAiWayProvider = useCallback(() => {
+    let finalName = "aiway";
+    let n = 1;
+    while (config.providers?.[finalName]) finalName = `aiway-${n++}`;
+    setConfig((prev) => ({
+      ...prev,
+      providers: {
+        ...(prev.providers ?? {}),
+        [finalName]: {
+          api: "openai-completions",
+        },
+      },
+    }));
     setSelection({ type: "provider", name: finalName });
   }, [config.providers]);
 
@@ -1715,31 +1754,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Add provider */}
-            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px", display: "flex", flexDirection: "column", gap: 6 }}>
-              <button onClick={() => {
-                let finalName = "aiway";
-                let n = 1;
-                while (config.providers?.[finalName]) finalName = `aiway-${n++}`;
-                setConfig((prev) => ({
-                  ...prev,
-                  providers: {
-                    ...(prev.providers ?? {}),
-                    [finalName]: {
-                      api: "openai-completions"
-                    }
-                  }
-                }));
-                setSelection({ type: "provider", name: finalName });
-              }} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
-                width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
-                color: "var(--accent)", cursor: "pointer", fontSize: 12, fontWeight: 600,
-              }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.background = "var(--bg-hover)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "none"; }}
-              >
-                + AI Way
-              </button>
+            <div style={{ borderTop: "1px solid var(--border)", padding: "8px 6px" }}>
               <button onClick={() => setPickerOpen(true)} style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 width: "100%", padding: "6px 0", background: "none", border: "1px dashed var(--border)", borderRadius: 5,
@@ -1799,6 +1814,7 @@ export function ModelsConfig({ onClose }: { onClose: () => void }) {
         onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
         onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
         onAddCustom={addCustomProvider}
+        onAddAiWay={addAiWayProvider}
         onClose={() => setPickerOpen(false)}
       />
     )}
