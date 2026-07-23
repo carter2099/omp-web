@@ -59,6 +59,7 @@ app/api/
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
   models-config/test/route.ts     POST test a configured model/provider
+  mcp/route.ts                     GET/POST /api/mcp MCP inventory and mutations
   plugins/route.ts                GET/POST package plugin management
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
@@ -71,7 +72,11 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  mcp-service.ts       MCP config inventory, mutations, and session-facing settings updates
+  mcp-probe.ts         isolated MCP connection probe orchestration
+  mcp-redact.ts        redacts MCP env, headers, auth, oauth, and URL secrets
   npx.ts               npx runner used by skill install
+  package-root.ts      package/project root resolution for MCP resources
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
@@ -92,6 +97,7 @@ components/
   ModelsConfig.tsx    modal for editing models.yml (opened from sidebar bottom)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
+  McpConfig.tsx       MCP configuration modal opened from the sidebar/footer
   FileExplorer.tsx    file tree inside sidebar
   FileIcons.tsx       file icon helpers
   FileViewer.tsx      file content in a tab
@@ -103,6 +109,9 @@ hooks/
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state
+
+scripts/
+  mcp-probe-worker.mjs isolated MCP probe worker
 ```
 
 ---
@@ -168,6 +177,15 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+
+### MCP configuration
+- Native MCP config paths are `~/.omp/agent/mcp.json` and `<project>/.omp/mcp.json`, resolved by OMP `getMCPConfigPath`.
+- MCP inventory loads the MCP capability with `includeDisabled: true` and iterates `cap.all`, so disabled and shadowed rows remain visible.
+- Mutations write only native `user` or `project` configs. Updates preserve secrets: omitted secret fields keep their existing values, while provided objects replace them.
+- Probing runs in an isolated `scripts/mcp-probe-worker.mjs` worker. The parent injects `PI_WEB_MCP_PROBE_TOKEN`, kills the worker/process group, and on Linux iteratively reaps token-tagged detached descendants. Non-Linux platforms may retain residual orphan processes if a detached descendant escapes termination.
+- Config changes do not hot-reload into a running `AgentSession`; they apply on the next `ensure_session` or new session. Enabling scrubs stale `disabledExtensions` and calls `invalidateSettings` after flush/readback.
+- Responses never return raw env, headers, auth, oauth, or URL secrets; probe errors are redacted.
+- The sidebar/footer MCP button opens the `McpConfig` modal and is cwd-gated.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
