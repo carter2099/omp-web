@@ -58,6 +58,7 @@ app/api/
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
+  models-config/sync/route.ts     POST AI Way / gateway model sync → models.yml
   models-config/test/route.ts     POST test a configured model/provider
   mcp/route.ts                     GET/POST /api/mcp MCP inventory and mutations
   plugins/route.ts                GET/POST package plugin management
@@ -177,6 +178,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+- **AI Way sync** (`POST /api/models-config/sync`, UI: Models → provider →「从网关同步模型」): fetches `{baseUrl}/models`, maps `native_endpoint_types` → per-model `api` (`messages`→`anthropic-messages`, `responses`→`openai-responses`, `completions`→`openai-completions`), writes `thinking.mode`/`efforts`/`defaultLevel` from capabilities, skips embeddings/rerank/fim. Sync **persists immediately** via `saveModelsConfig` (no extra Save required for the write). Logic lives in `lib/aiway-sync.ts`.
 
 ### MCP configuration
 - Native MCP config paths are `~/.omp/agent/mcp.json` and `<project>/.omp/mcp.json`, resolved by OMP `getMCPConfigPath`.
