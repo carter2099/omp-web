@@ -84,8 +84,19 @@ export interface PluginPackageInfo {
   status: "loaded" | "installed" | "missing" | "disabled";
 }
 
+export interface PathExtensionInfo {
+  path: string;
+  configuredPath: string;
+  packageName?: string;
+  version?: string;
+  entrypoints: string[];
+  exists: boolean;
+  status: "loaded" | "missing" | "invalid";
+}
+
 export interface PluginsResponse {
   packages: PluginPackageInfo[];
+  pathExtensions: PathExtensionInfo[];
   totals: PluginResourceCounts;
   diagnostics: PluginDiagnostic[];
 }

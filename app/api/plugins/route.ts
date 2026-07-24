@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
 	listPlugins,
 	mutatePlugins,
+	removePathExtension,
 	PluginServiceError,
 	type PluginAction,
 } from "@/lib/plugins-service";
@@ -19,6 +20,10 @@ function isPluginAction(value: unknown): value is PluginAction {
 		value === "enable" ||
 		value === "disable"
 	);
+}
+
+function isPathExtensionAction(value: unknown): value is "remove-path" {
+	return value === "remove-path";
 }
 
 function readScope(scope: unknown): PluginScope {
@@ -41,12 +46,14 @@ export async function GET(req: Request) {
 	}
 }
 
-// POST /api/plugins body: { action, source?, scope?, cwd }
+// POST /api/plugins body: { action, source?, path?, scope?, cwd }
+// path actions: remove-path (Settings extensions)
 export async function POST(req: Request) {
 	try {
 		const body = (await req.json()) as {
 			action?: unknown;
 			source?: unknown;
+			path?: unknown;
 			scope?: unknown;
 			cwd?: unknown;
 		};
@@ -54,6 +61,20 @@ export async function POST(req: Request) {
 		if (typeof body.cwd !== "string" || !body.cwd) {
 			return NextResponse.json({ error: "cwd required" }, { status: 400 });
 		}
+
+		const runtime = await getOmpRuntime();
+
+		if (isPathExtensionAction(body.action)) {
+			const pathValue =
+				typeof body.path === "string"
+					? body.path
+					: typeof body.source === "string"
+						? body.source
+						: "";
+			const result = await removePathExtension(body.cwd, pathValue, runtime);
+			return NextResponse.json(result);
+		}
+
 		if (!isPluginAction(body.action)) {
 			return NextResponse.json(
 				{ error: body.action ? `Unsupported action: ${String(body.action)}` : "action required" },
@@ -61,7 +82,6 @@ export async function POST(req: Request) {
 			);
 		}
 
-		const runtime = await getOmpRuntime();
 		const result = await mutatePlugins(
 			{
 				action: body.action,
