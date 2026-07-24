@@ -85,7 +85,40 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
-const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+/** OMP built-in + legacy aliases — used so withExtensionTools only re-adds MCP/custom tools. */
+const CODING_TOOL_NAMES = [
+  "read",
+  "bash",
+  "edit",
+  "ast_grep",
+  "ast_edit",
+  "ask",
+  "debug",
+  "eval",
+  "github",
+  "glob",
+  "grep",
+  "lsp",
+  "inspect_image",
+  "browser",
+  "checkpoint",
+  "rewind",
+  "task",
+  "hub",
+  "todo",
+  "web_search",
+  "write",
+  "memory_edit",
+  "retain",
+  "recall",
+  "reflect",
+  "learn",
+  "manage_skill",
+  // legacy pi ids
+  "find",
+  "search",
+  "ls",
+];
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
 /** Parent session idle timeout (10 minutes). Exported for idle/subagent unit tests. */
 export const IDLE_MS = 10 * 60 * 1000;
@@ -683,7 +716,15 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
-        const toolNames = command.toolNames as string[];
+        // null/undefined = OMP natural default (activate every registered tool).
+        // [] = no tools. non-empty = allow-list (+ task + non-builtin extensions).
+        const toolNames = command.toolNames as string[] | null | undefined;
+        if (toolNames === null || toolNames === undefined) {
+          this.setForceEmptySystemPrompt(false);
+          await this.inner.setActiveToolsByName(this.inner.getAllToolNames());
+          this.applyForcedEmptySystemPrompt();
+          return null;
+        }
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         await this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
