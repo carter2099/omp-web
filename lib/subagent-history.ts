@@ -27,6 +27,10 @@ import type {
 
 const HEADER_SCAN_BYTES = 64 * 1024;
 const TAIL_SCAN_BYTES = 8 * 1024;
+/** Cap parent-session task metadata scan (agent type recovery). */
+const PARENT_TASK_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+/** Match ROLE headers injected into child system prompts: `You are **Oracle**`. */
+const ROLE_HEADER_RE = /You are \*\*([A-Za-z][A-Za-z0-9_-]{0,63})\*\*/;
 
 export type SubagentHistoryWalkerHooks = {
 	/** Invoked with the absolute path immediately before a candidate is opened. */
@@ -79,25 +83,35 @@ function readStringField(obj: Record<string, unknown>, key: string): string | nu
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-/**
- * Best-effort status + leafId from a light head/tail scan of a jsonl session file.
- */
-function extractMetadata(filePath: string): {
+type ChildMeta = {
 	leafId: string | null;
 	status: SubagentHistoryStatus;
-} {
+	agent: string | null;
+	model: string | null;
+};
+
+type ParentTaskMeta = {
+	agent?: string;
+	agentSource?: string;
+	task?: string;
+	description?: string;
+};
+
+function extractMetadata(filePath: string): ChildMeta {
 	let status: SubagentHistoryStatus = "unknown";
 	let leafId: string | null = null;
+	let agent: string | null = null;
+	let model: string | null = null;
 
 	let size = 0;
 	try {
 		size = statSync(filePath).size;
 	} catch {
-		return { leafId, status };
+		return { leafId, status, agent, model };
 	}
 
 	if (size <= 0) {
-		return { leafId, status };
+		return { leafId, status, agent, model };
 	}
 
 	const headLen = Math.min(size, HEADER_SCAN_BYTES);
@@ -108,9 +122,22 @@ function extractMetadata(filePath: string): {
 		const rec = asRecord(obj);
 		if (!rec) continue;
 		const type = readStringField(rec, "type");
-		// Session header has no terminal status; keep scanning early lines.
+		if (type === "session_init") {
+			const systemPrompt = readStringField(rec, "systemPrompt");
+			if (systemPrompt) {
+				const match = ROLE_HEADER_RE.exec(systemPrompt);
+				if (match?.[1]) {
+					agent = match[1].toLowerCase();
+				}
+			}
+			continue;
+		}
+		if (type === "model_change") {
+			const modelField = readStringField(rec, "model");
+			if (modelField) model = modelField;
+			continue;
+		}
 		if (type === "session_info") {
-			// no status field typically
 			continue;
 		}
 		if (type === "message") {
@@ -164,7 +191,130 @@ function extractMetadata(filePath: string): {
 		status = "completed";
 	}
 
-	return { leafId, status };
+	return { leafId, status, agent, model };
+}
+
+function rememberParentMeta(
+	map: Map<string, ParentTaskMeta>,
+	id: string,
+	patch: ParentTaskMeta,
+): void {
+	const existing = map.get(id) ?? {};
+	map.set(id, {
+		agent: patch.agent ?? existing.agent,
+		agentSource: patch.agentSource ?? existing.agentSource,
+		task: patch.task ?? existing.task,
+		description: patch.description ?? existing.description,
+	});
+}
+
+function ingestProgressLikeRow(
+	map: Map<string, ParentTaskMeta>,
+	row: Record<string, unknown>,
+): void {
+	const id = readStringField(row, "id");
+	if (!id) return;
+	rememberParentMeta(map, id, {
+		agent: readStringField(row, "agent") ?? undefined,
+		agentSource: readStringField(row, "agentSource") ?? undefined,
+		task: readStringField(row, "task") ?? readStringField(row, "assignment") ?? undefined,
+		description: readStringField(row, "description") ?? undefined,
+	});
+}
+
+function scanParentTaskMetadata(parentSessionFile: string): Map<string, ParentTaskMeta> {
+	const map = new Map<string, ParentTaskMeta>();
+	let size = 0;
+	try {
+		size = statSync(parentSessionFile).size;
+	} catch {
+		return map;
+	}
+	if (size <= 0) return map;
+
+	const scanLen = Math.min(size, PARENT_TASK_SCAN_MAX_BYTES);
+	const text = readFileSlice(parentSessionFile, 0, scanLen);
+	const body =
+		scanLen < size && text.includes("\n")
+			? text.slice(0, text.lastIndexOf("\n") + 1)
+			: text;
+
+	for (const obj of parseJsonlObjects(body)) {
+		const rec = asRecord(obj);
+		if (!rec) continue;
+		if (readStringField(rec, "type") !== "message") continue;
+		const message = asRecord(rec.message);
+		if (!message) continue;
+		const role = readStringField(message, "role");
+
+		if (role === "assistant") {
+			const content = message.content;
+			if (!Array.isArray(content)) continue;
+			for (const block of content) {
+				const b = asRecord(block);
+				if (!b) continue;
+				const blockType = readStringField(b, "type");
+				const toolName = readStringField(b, "name") ?? readStringField(b, "toolName");
+				if (blockType !== "toolCall" && blockType !== "tool_use") continue;
+				if (toolName !== "task") continue;
+				const args = asRecord(b.arguments) ?? asRecord(b.input);
+				if (!args) continue;
+				const singleName = readStringField(args, "name");
+				const singleAgent = readStringField(args, "agent");
+				if (singleName && singleAgent) {
+					rememberParentMeta(map, singleName, {
+						agent: singleAgent,
+						task: readStringField(args, "task") ?? undefined,
+						description: readStringField(args, "description") ?? singleName,
+					});
+				}
+				const tasks = args.tasks;
+				if (Array.isArray(tasks)) {
+					for (const item of tasks) {
+						const t = asRecord(item);
+						if (!t) continue;
+						const name = readStringField(t, "name");
+						const agent = readStringField(t, "agent");
+						if (!name) continue;
+						rememberParentMeta(map, name, {
+							agent: agent ?? undefined,
+							task: readStringField(t, "task") ?? undefined,
+							description: readStringField(t, "description") ?? name,
+						});
+					}
+				}
+			}
+			continue;
+		}
+
+		if (role === "toolResult" || role === "tool") {
+			const toolName = readStringField(message, "toolName") ?? readStringField(message, "name");
+			if (toolName !== "task") continue;
+			const details = asRecord(message.details);
+			if (!details) continue;
+			if (Array.isArray(details.progress)) {
+				for (const row of details.progress) {
+					const r = asRecord(row);
+					if (r) ingestProgressLikeRow(map, r);
+				}
+			}
+			if (Array.isArray(details.results)) {
+				for (const row of details.results) {
+					const r = asRecord(row);
+					if (r) ingestProgressLikeRow(map, r);
+				}
+			}
+			const asyncBag = asRecord(details.async);
+			if (asyncBag && Array.isArray(asyncBag.progress)) {
+				for (const row of asyncBag.progress) {
+					const r = asRecord(row);
+					if (r) ingestProgressLikeRow(map, r);
+				}
+			}
+		}
+	}
+
+	return map;
 }
 
 function walkDir(
@@ -200,13 +350,15 @@ function walkDir(
 
 		hooks?.onOpen?.(allowedPath);
 
-		const { leafId, status } = extractMetadata(allowedPath);
+		const { leafId, status, agent, model } = extractMetadata(allowedPath);
 		out.push({
 			agentId,
 			parent: parentKey,
 			sessionFile: allowedPath,
 			leafId,
 			status,
+			...(agent ? { agent } : {}),
+			...(model ? { model } : {}),
 		});
 
 		// Nested children live under `<dir>/<agentId>/` (same layout as OMP artifacts).
@@ -220,6 +372,21 @@ function walkDir(
 				// Ignore unreadable nested dirs.
 			}
 		}
+	}
+}
+
+function applyParentTaskMetadata(
+	rows: SubagentHistoryRow[],
+	parentMeta: Map<string, ParentTaskMeta>,
+): void {
+	if (parentMeta.size === 0 || rows.length === 0) return;
+	for (const row of rows) {
+		const meta = parentMeta.get(row.agentId);
+		if (!meta) continue;
+		if (meta.agent) row.agent = meta.agent;
+		if (meta.agentSource) row.agentSource = meta.agentSource;
+		if (meta.task) row.task = meta.task;
+		if (meta.description) row.description = meta.description;
 	}
 }
 
@@ -260,5 +427,6 @@ export function listSubagentHistory(
 
 	const out: SubagentHistoryRow[] = [];
 	walkDir(rootDir, null, parentSessionFile, out, hooks);
+	applyParentTaskMetadata(out, scanParentTaskMetadata(parentSessionFile));
 	return out;
 }

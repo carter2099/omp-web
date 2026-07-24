@@ -336,12 +336,23 @@ export function mergeColdHistory(
 			continue;
 		}
 
+		const agentType = row.agent?.trim() || row.agentId;
+		let description =
+			row.description?.trim()
+			|| row.task?.trim()
+			|| (row.parent ? `历史 · ${row.parent}` : "历史");
+		if (row.agent && row.agent !== row.agentId && !row.description) {
+			description = row.task?.trim()
+				? `${row.agentId} · ${row.task.trim()}`
+				: row.agentId;
+		}
 		next[coldId] = {
 			id: coldId,
 			index: coldIndex,
-			agent: row.agentId,
-			agentSource: "bundled",
-			description: row.parent ? `历史 · ${row.parent}` : "历史",
+			agent: agentType,
+			agentSource: (row.agentSource as RpcSubagentSnapshot["agentSource"]) ?? "bundled",
+			description,
+			task: row.task,
 			status: historyStatusToSnapshot(row.status),
 			sessionFile: row.sessionFile,
 			lastUpdate: 0,

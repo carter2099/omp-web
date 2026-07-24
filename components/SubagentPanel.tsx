@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { RpcSubagentSnapshot, SubagentMessagesPage } from "@/lib/subagent-types";
 import { isLiveSubagentStatus } from "@/lib/subagent-live";
+import {
+  displayRoleLabel,
+  parseSubagentTranscriptDisplay,
+  type SubagentDisplayTurn,
+} from "@/lib/subagent-transcript-display";
+import { MarkdownBody } from "@/components/MarkdownBody";
 
 interface SubagentPanelProps {
   subagents: RpcSubagentSnapshot[];
@@ -47,6 +53,23 @@ function statusColor(status: string): string {
   }
 }
 
+function roleAccent(role: SubagentDisplayTurn["role"]): string {
+  switch (role) {
+    case "user":
+      return "var(--accent)";
+    case "assistant":
+      return "#10b981";
+    case "tool":
+      return "#f59e0b";
+    default:
+      return "var(--text-muted)";
+  }
+}
+
+function agentTypeBadge(agent: string): string {
+  return agent.trim() || "unknown";
+}
+
 function SubagentListRow({
   snapshot,
   onSelect,
@@ -54,6 +77,13 @@ function SubagentListRow({
   snapshot: RpcSubagentSnapshot;
   onSelect: (id: string) => void;
 }) {
+  const typeLabel = agentTypeBadge(snapshot.agent);
+  // When id is a spawn label distinct from the agent type, show both.
+  const idTail = snapshot.id.includes("/")
+    ? snapshot.id.slice(snapshot.id.lastIndexOf("/") + 1)
+    : snapshot.id;
+  const showJobId = idTail !== snapshot.agent && idTail.length > 0;
+
   return (
     <div
       role="button"
@@ -79,9 +109,41 @@ function SubagentListRow({
         e.currentTarget.style.background = "var(--bg)";
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{snapshot.agent}</span>
-        <span style={{ fontSize: 10, fontWeight: 600, color: statusColor(snapshot.status) }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: "var(--font-mono)",
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: "var(--bg-panel)",
+              border: "1px solid var(--border)",
+              color: "var(--accent)",
+              flexShrink: 0,
+            }}
+            title={snapshot.agentSource ? `来源: ${snapshot.agentSource}` : undefined}
+          >
+            {typeLabel}
+          </span>
+          {showJobId && (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: "var(--text-muted)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={snapshot.id}
+            >
+              {idTail}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 10, fontWeight: 600, color: statusColor(snapshot.status), flexShrink: 0 }}>
           {statusLabel(snapshot.status)}
         </span>
       </div>
@@ -100,6 +162,85 @@ function SubagentListRow({
   );
 }
 
+function TranscriptTurn({ turn }: { turn: SubagentDisplayTurn }) {
+  const label =
+    turn.role === "tool" && turn.toolName
+      ? `${displayRoleLabel(turn.role)} · ${turn.toolName}`
+      : displayRoleLabel(turn.role);
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: "10px 12px",
+        borderRadius: 8,
+        background: turn.role === "user" ? "var(--user-bg, var(--bg-hover))" : "var(--bg-panel)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: 0.3,
+          color: roleAccent(turn.role),
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+
+      {turn.role === "tool" ? (
+        <pre
+          style={{
+            margin: 0,
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            lineHeight: 1.45,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            color: "var(--text-muted)",
+            maxHeight: 240,
+            overflow: "auto",
+          }}
+        >
+          {turn.text}
+        </pre>
+      ) : turn.text ? (
+        <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--text)" }}>
+          <MarkdownBody>{turn.text}</MarkdownBody>
+        </div>
+      ) : null}
+
+      {turn.toolCalls && turn.toolCalls.length > 0 && (
+        <div style={{ marginTop: turn.text ? 8 : 0, display: "flex", flexDirection: "column", gap: 4 }}>
+          {turn.toolCalls.map((call, i) => (
+            <div
+              key={`${turn.id}-tc-${i}`}
+              style={{
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                padding: "4px 8px",
+                borderRadius: 4,
+                background: "var(--tool-bg, var(--bg))",
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={call.summary}
+            >
+              🔧 {call.name}
+              {call.summary ? ` — ${call.summary}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SubagentPanel({
   subagents,
   selectedSubagentId,
@@ -108,7 +249,7 @@ export function SubagentPanel({
   fetchColdHistory,
   onClose,
 }: SubagentPanelProps) {
-  const [messages, setMessages] = useState<string>("");
+  const [rawTranscript, setRawTranscript] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +258,11 @@ export function SubagentPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const selected = subagents.find((s) => s.id === selectedSubagentId) ?? null;
+
+  const turns = useMemo(
+    () => parseSubagentTranscriptDisplay(rawTranscript),
+    [rawTranscript],
+  );
 
   const { active, history } = useMemo(() => {
     const activeRows: RpcSubagentSnapshot[] = [];
@@ -158,7 +304,7 @@ export function SubagentPanel({
           ? { sessionFile: target.sessionFile, fromByte }
           : { subagentId: target.id, fromByte },
       );
-      setMessages((prev) => (append ? prev + page.content : page.content));
+      setRawTranscript((prev) => (append ? prev + page.content : page.content));
       setNextByte(page.nextByte);
       setEof(page.eof);
     } catch (err) {
@@ -172,7 +318,7 @@ export function SubagentPanel({
     if (selected) {
       void loadTranscript(selected, 0, false);
     } else {
-      setMessages("");
+      setRawTranscript("");
       setNextByte(0);
       setEof(true);
     }
@@ -182,12 +328,12 @@ export function SubagentPanel({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [turns.length]);
 
   return (
     <div
       style={{
-        width: 320,
+        width: 380,
         height: "100%",
         display: "flex",
         flexDirection: "column",
@@ -233,10 +379,40 @@ export function SubagentPanel({
                 background: "var(--bg)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-                  {selected.agent}
-                </span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      fontFamily: "var(--font-mono)",
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      background: "var(--bg-panel)",
+                      border: "1px solid var(--border)",
+                      color: "var(--accent)",
+                    }}
+                    title={selected.agentSource ? `来源: ${selected.agentSource}` : "代理类型"}
+                  >
+                    {agentTypeBadge(selected.agent)}
+                  </span>
+                  {selected.id !== selected.agent && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={selected.id}
+                    >
+                      {selected.id.includes("/")
+                        ? selected.id.slice(selected.id.lastIndexOf("/") + 1)
+                        : selected.id}
+                    </span>
+                  )}
+                </div>
                 <span
                   style={{
                     fontSize: 11,
@@ -245,6 +421,7 @@ export function SubagentPanel({
                     background: "var(--bg-panel)",
                     color: statusColor(selected.status),
                     fontWeight: 600,
+                    flexShrink: 0,
                   }}
                 >
                   {statusLabel(selected.status)}
@@ -293,23 +470,25 @@ export function SubagentPanel({
               ref={scrollRef}
               style={{
                 flex: 1,
-                padding: 16,
+                padding: 12,
                 overflowY: "auto",
-                fontFamily: "var(--font-mono)",
-                fontSize: 12,
-                lineHeight: 1.5,
                 background: "var(--bg)",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
               }}
             >
-              {loading && messages.length === 0 && (
-                <div style={{ color: "var(--text-dim)", textAlign: "center" }}>加载中…</div>
+              {loading && turns.length === 0 && (
+                <div style={{ color: "var(--text-dim)", textAlign: "center", padding: 16 }}>加载中…</div>
               )}
               {error && (
                 <div style={{ color: "#ef4444", textAlign: "center", padding: 8 }}>{error}</div>
               )}
-              {messages || (!loading && "无对话记录")}
+              {!loading && !error && turns.length === 0 && (
+                <div style={{ color: "var(--text-dim)", textAlign: "center", padding: 16 }}>
+                  无对话记录
+                </div>
+              )}
+              {turns.map((turn) => (
+                <TranscriptTurn key={turn.id} turn={turn} />
+              ))}
               {!eof && (
                 <button
                   type="button"

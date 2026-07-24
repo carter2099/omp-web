@@ -56,6 +56,12 @@ export interface SubagentHistoryRow {
 	leafId: string | null;
 	/** Best-effort status from header / early lines. */
 	status: SubagentHistoryStatus;
+	/** Agent type (oracle/reviewer/scout/…), not spawn label (`agentId`). */
+	agent?: string;
+	agentSource?: string;
+	task?: string;
+	description?: string;
+	model?: string;
 }
 
 export interface SubagentHistoryListResponse {
