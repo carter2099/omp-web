@@ -12,6 +12,8 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import type { TaskEager } from "@/lib/task-eager-shared";
+import { normalizeTaskEager } from "@/lib/task-eager-shared";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type {
   RpcSubagentSnapshot,
@@ -360,6 +362,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [taskEager, setTaskEager] = useState<TaskEager>("default");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -1587,7 +1590,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
-    const toolNames = getToolNamesForPreset(preset);
+    // default → null (OMP unrestricted); none → []; full → all built-in names
+    const resolved = getToolNamesForPreset(preset);
+    const toolNames = resolved === undefined ? null : resolved;
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
@@ -1597,6 +1602,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to set tools:", e);
     }
   }, [setToolPresetState]);
+
+  const loadTaskEager = useCallback(async (cwd?: string | null) => {
+    try {
+      const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+      const res = await fetch(`/api/settings/task-eager${qs}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { eager?: unknown };
+      setTaskEager(normalizeTaskEager(data.eager));
+    } catch (e) {
+      console.error("Failed to load task.eager:", e);
+    }
+  }, []);
+
+  const handleTaskEagerChange = useCallback(async (next: TaskEager) => {
+    const prev = taskEager;
+    setTaskEager(next);
+    const cwd = session?.cwd ?? newSessionCwd ?? undefined;
+    try {
+      const res = await fetch("/api/settings/task-eager", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eager: next, cwd }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { eager?: unknown };
+      setTaskEager(normalizeTaskEager(data.eager));
+    } catch (e) {
+      console.error("Failed to set task.eager:", e);
+      setTaskEager(prev);
+    }
+  }, [taskEager, session?.cwd, newSessionCwd]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
@@ -1626,6 +1665,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     if (Date.now() > userScrollIntentUntilRef.current) return;
     completionScrollAllowedRef.current = false;
   }, []);
+
+  useEffect(() => {
+    void loadTaskEager(session?.cwd ?? newSessionCwd ?? null);
+  }, [session?.cwd, newSessionCwd, loadTaskEager]);
 
   // Load session on mount
   useEffect(() => {
@@ -1761,7 +1804,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, taskEager, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -1784,7 +1827,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleToolPresetChange, handleTaskEagerChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

@@ -169,7 +169,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, taskEager, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -185,7 +185,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleToolPresetChange, handleTaskEagerChange, handleThinkingLevelChange, loadSlashCommands,
     selectSubagent,
     loadSubagentMessages,
     fetchColdHistory,
@@ -318,6 +318,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      taskEager={taskEager}
+      onTaskEagerChange={session || isNew ? handleTaskEagerChange : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
@@ -694,17 +696,21 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             title="子代理 / 历史"
             style={{
               position: "absolute",
-              top: 12,
-              right: 12,
+              top: 10,
+              right: CHAT_MINIMAP_WIDTH + 10,
               zIndex: 30,
-              padding: "4px 10px",
+              height: 28,
+              padding: "0 12px",
               fontSize: 11,
               fontWeight: 600,
+              lineHeight: "26px",
               borderRadius: 6,
               border: "1px solid var(--border)",
               background: "var(--bg-panel)",
               color: "var(--text-muted)",
               cursor: "pointer",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+              whiteSpace: "nowrap",
             }}
           >
             历史
