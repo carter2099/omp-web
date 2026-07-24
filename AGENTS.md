@@ -52,6 +52,7 @@ app/api/
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth provider list
+  cwd/browse/route.ts             GET  ?path= — list child dirs for project picker
   cwd/validate/route.ts           POST validate/select a cwd
   default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
   files/[...path]/route.ts        GET file contents for viewer
@@ -165,6 +166,7 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 
 ### File access allow-list
 - `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
+- `/api/cwd/browse` lists immediate child directories for the project path picker (default path = home). Selection still goes through `/api/cwd/validate`.
 - `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Plugins and skills
@@ -251,7 +253,7 @@ Location: `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 | `list_subagent_history` / `GET /api/sessions/[id]/subagents` | **200** / **404** | Metadata rows for cold history. 404 if parent session missing. Empty array if artifacts missing. |
 
 ### Task Tool Preset & Panel
-- **Tool Enablement**: `"task"` is included in `PRESET_DEFAULT` and `PRESET_FULL`. Non-empty custom tool sets always retain `"task"` so subagents can be spawned.
+- **Tool Enablement**: Presets match OhMyPi: `none` = no tools; `default` = unrestricted OMP session (same as CLI without `--tools`); `full` = all OMP built-in names. Non-empty allow-lists always retain `"task"` so subagents can be spawned.
 - **Message Card**: Rendered in `MessageView` when toolName is `"task"`, showing description and execution status.
 - **Card/Panel Correlation**: Task card passes `toolCallId` plus task-result details (`sessionFile` / `results[].id` agent ids). Panel focus matches live by `parentToolCallId`, else cold/history by `sessionFile` or `agentId`, then first row.
 - **Chinese UI Translation**: Panel and cards use: `子代理`, `进度`, `进行中`, `已完成`, `失败`, `已中止`, `打开对话` (task card button), `历史` (panel section + chrome toggle). Cold history loads via `GET /api/sessions/[id]/subagents` on panel open / SSE connect and merges with live snapshots by `sessionFile`/`agentId`; transcript open prefers `sessionFile` for cold rows.
