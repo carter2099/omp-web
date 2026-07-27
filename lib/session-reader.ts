@@ -18,6 +18,11 @@ import { closeSync, openSync, readSync } from "fs";
 import { normalize as normalizePath } from "path";
 import type { AgentMessage, SessionEntry, SessionHeader, SessionInfo, SessionContext } from "./types";
 import { normalizeToolCalls } from "./normalize";
+import {
+  mapWithConcurrency,
+  needsFirstMessageEnrichment,
+  scanSessionFileForFirstUserMessage,
+} from "./session-first-message";
 import { resolveProject, type ProjectInfo } from "./worktree";
 
 export { getAgentDir };
@@ -112,7 +117,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
     projectByCwd.set(cwd, await resolveProject(cwd));
   }));
 
-  return ompSessions.map((s) => {
+  const sessions: SessionInfo[] = ompSessions.map((s) => {
     cacheSessionPath(s.id, s.path);
     const project = s.cwd ? projectByCwd.get(s.cwd) : undefined;
     return {
@@ -130,6 +135,31 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       ...(project?.isWorktree && project.branch ? { worktreeBranch: project.branch } : {}),
     };
   });
+
+  // OMP listAll only reads a 4 KiB prefix; large custom_message entries can hide
+  // the first user message. Enrich empty titles with a bounded stream scan.
+  // Concurrency 8 avoids opening hundreds of FDs on large session lists.
+  const FIRST_MESSAGE_SCAN_CONCURRENCY = 8;
+  await mapWithConcurrency(sessions, FIRST_MESSAGE_SCAN_CONCURRENCY, async (session, index) => {
+    if (!needsFirstMessageEnrichment(session.firstMessage, session.messageCount)) {
+      return session;
+    }
+    const found = await scanSessionFileForFirstUserMessage(session.path);
+    if (!found) return session;
+    // If OMP reported 0 messages but we found a user turn, expose a lower bound
+    // of 1 so the UI does not look empty; otherwise keep OMP's count.
+    const messageCount =
+      session.messageCount === 0 ? Math.max(1, session.messageCount) : session.messageCount;
+    const enriched: SessionInfo = {
+      ...session,
+      firstMessage: found.firstMessage,
+      messageCount,
+    };
+    sessions[index] = enriched;
+    return enriched;
+  });
+
+  return sessions;
 }
 
 export async function listAllSessions(): Promise<SessionInfo[]> {
