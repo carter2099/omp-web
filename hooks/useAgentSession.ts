@@ -30,6 +30,14 @@ import {
   type SubagentClientFrame,
   type SubagentSnapshotMap,
 } from "@/lib/subagent-client-state";
+import {
+  isNearContentEnd,
+  scrolledUpEnough,
+  stickAfterScrollEvent,
+  PROGRAMMATIC_SCROLL_IGNORE_MS,
+  SCROLL_BOTTOM_PAD_PX,
+  scrollTopToRevealBottom,
+} from "@/lib/chat-scroll";
 
 export interface SessionData {
   sessionId: string;
@@ -171,8 +179,6 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
-const USER_SCROLL_INTENT_MS = 1200;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -182,7 +188,6 @@ const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
-const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Space", "Spacebar"]);
 
 type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
 
@@ -397,10 +402,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
-  const completionScrollAllowedRef = useRef(true);
+  const stickToBottomRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
+  const lastScrollTopRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
@@ -1203,7 +1208,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
-    completionScrollAllowedRef.current = true;
+    stickToBottomRef.current = true;
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
@@ -1638,8 +1643,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [taskEager, session?.cwd, newSessionCwd]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    // Smooth scrolls need a short ignore so intermediate positions don't unstick.
+    // Instant streaming follow must not refresh a long ignore window (blocks user unstick).
+    if (behavior !== "instant") {
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+    }
+    const container = scrollContainerRef.current;
+    const end = messagesEndRef.current;
+    if (container && end) {
+      const cRect = container.getBoundingClientRect();
+      const eRect = end.getBoundingClientRect();
+      const top = scrollTopToRevealBottom(
+        container.scrollTop,
+        cRect.bottom,
+        eRect.bottom,
+        SCROLL_BOTTOM_PAD_PX,
+      );
+      container.scrollTo({ top, behavior });
+      lastScrollTopRef.current = top;
+      return;
+    }
+    end?.scrollIntoView({ behavior, block: "end" });
   }, []);
 
   const scrollUserMsgToTop = useCallback(() => {
@@ -1647,24 +1671,69 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const el = lastUserMsgRef.current;
     if (!container || !el) return;
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
-  }, []);
-
-  const markUserScrollIntent = useCallback((event: Event) => {
-    if (event instanceof KeyboardEvent) {
-      if (!SCROLL_KEYS.has(event.key)) return;
-      if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
-    }
-    userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_MS;
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS * 2;
+    stickToBottomRef.current = true;
+    const top = elAbsTop - 16;
+    container.scrollTo({ top, behavior: "smooth" });
+    lastScrollTopRef.current = top;
   }, []);
 
   const handleScrollPositionChange = useCallback(() => {
-    if (!agentRunningRef.current) return;
-    if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    if (Date.now() > userScrollIntentUntilRef.current) return;
-    completionScrollAllowedRef.current = false;
+    const container = scrollContainerRef.current;
+    const end = messagesEndRef.current;
+    if (!container) return;
+    const scrollTop = container.scrollTop;
+    const prevTop = lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+    const ignore = Date.now() < ignoreProgrammaticScrollUntilRef.current;
+
+    // User moved viewport up (scrollbar/keys). Skip during programmatic ignore
+    // so scrollUserMsgToTop does not clear stick.
+    if (!ignore && scrolledUpEnough(prevTop, scrollTop)) {
+      stickToBottomRef.current = false;
+      return;
+    }
+
+    let nearBottom = true;
+    if (end) {
+      const cRect = container.getBoundingClientRect();
+      const eRect = end.getBoundingClientRect();
+      nearBottom = isNearContentEnd(cRect.bottom, eRect.bottom);
+    }
+    stickToBottomRef.current = stickAfterScrollEvent({
+      nearBottom,
+      ignoreProgrammatic: ignore,
+      previousStick: stickToBottomRef.current,
+    });
   }, []);
+
+  const handleWheelUnstick = useCallback((e: WheelEvent) => {
+    if (e.deltaY < 0) stickToBottomRef.current = false;
+  }, []);
+
+  const streamingContentKey = useMemo(() => {
+    const msg = streamState.streamingMessage;
+    if (!msg || !("content" in msg) || msg.content == null) return 0;
+    const content = msg.content;
+    if (typeof content === "string") return content.length;
+    if (!Array.isArray(content)) return 0;
+    let len = 0;
+    for (const block of content) {
+      if (
+        block
+        && typeof block === "object"
+        && "type" in block
+        && block.type === "text"
+        && "text" in block
+        && typeof block.text === "string"
+      ) {
+        len += block.text.length;
+      } else {
+        len += 1;
+      }
+    }
+    return len;
+  }, [streamState.streamingMessage]);
 
   useEffect(() => {
     void loadTaskEager(session?.cwd ?? newSessionCwd ?? null);
@@ -1722,41 +1791,55 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
   useEffect(() => {
-    window.addEventListener("keydown", markUserScrollIntent);
-    window.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
-    return () => {
-      window.removeEventListener("keydown", markUserScrollIntent);
-      window.removeEventListener("pointerdown", markUserScrollIntent);
-    };
-  }, [markUserScrollIntent]);
-
-  useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    container.addEventListener("wheel", markUserScrollIntent, { passive: true });
-    container.addEventListener("touchstart", markUserScrollIntent, { passive: true });
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
+    container.addEventListener("wheel", handleWheelUnstick, { passive: true });
     return () => {
-      container.removeEventListener("wheel", markUserScrollIntent);
-      container.removeEventListener("touchstart", markUserScrollIntent);
       container.removeEventListener("scroll", handleScrollPositionChange);
+      container.removeEventListener("wheel", handleWheelUnstick);
     };
-  }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
+  }, [messages.length, loading, handleScrollPositionChange, handleWheelUnstick]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
-      } else if (!initialScrollDoneRef.current) {
+    if (messages.length === 0 && !streamState.isStreaming) return;
+
+    if (pendingScrollToUserRef.current) {
+      pendingScrollToUserRef.current = false;
+      initialScrollDoneRef.current = true;
+      scrollUserMsgToTop();
+      return;
+    }
+
+    if (!stickToBottomRef.current) return;
+
+    const follow = () => {
+      if (!stickToBottomRef.current) return;
+      if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (!agentRunningRef.current && completionScrollAllowedRef.current) {
-        scrollToBottom("smooth");
+        return;
       }
-    }
-  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
+      const live = agentRunning || streamState.isStreaming;
+      scrollToBottom(live ? "instant" : "smooth");
+    };
+
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(follow);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [
+    messages.length,
+    agentRunning,
+    streamState.isStreaming,
+    streamingContentKey,
+    scrollToBottom,
+    scrollUserMsgToTop,
+  ]);
 
   // Load model list
   useEffect(() => {
