@@ -20,6 +20,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent/mcp";
 import type {
 	McpListResponse,
+	McpProbeResult,
 	McpServerConfigInput,
 	McpTransportType,
 	McpWritableScope,
@@ -191,6 +192,41 @@ function mergeSecretPreserve(
 		enabled: patch.enabled ?? raw.enabled,
 		timeout: patch.timeout ?? raw.timeout,
 	};
+}
+
+export async function probeMcpServerList(
+	params: ProbeMcpOptions,
+): Promise<McpListResponse> {
+	const lastProbe = await probeMcpServer(params);
+	const list = await listMcpServers(params.cwd);
+	return attachLastProbe(list, {
+		name: params.name,
+		sourcePath: params.sourcePath,
+		lastProbe,
+	});
+}
+
+export function attachLastProbe(
+	list: McpListResponse,
+	opts: {
+		name: string;
+		sourcePath?: string;
+		lastProbe: McpProbeResult;
+	},
+): McpListResponse {
+	const { name, sourcePath, lastProbe } = opts;
+	let matched = false;
+	const servers = list.servers.map((row) => {
+		if (row.name !== name) return row;
+		if (sourcePath) {
+			if (row.sourcePath !== sourcePath) return row;
+			return { ...row, lastProbe };
+		}
+		if (matched) return row;
+		matched = true;
+		return { ...row, lastProbe };
+	});
+	return { ...list, servers };
 }
 
 export async function listMcpServers(cwd: string): Promise<McpListResponse> {

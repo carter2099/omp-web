@@ -425,9 +425,43 @@ export function McpConfig({
           sourcePath: server.sourcePath,
         }),
       });
-      const next = (await res.json()) as McpListResponse & { error?: string };
+      const next = (await res.json()) as McpListResponse & {
+        error?: string;
+        status?: string;
+        durationMs?: number;
+        toolCount?: number;
+        tools?: string[];
+      };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      setData(next);
+
+      // Prefer full inventory response; fall back if an older server returns bare probe.
+      if (Array.isArray(next.servers)) {
+        setData(next);
+      } else if (
+        next.status === "ok" ||
+        next.status === "fail" ||
+        next.status === "timeout" ||
+        next.status === "fail_clean"
+      ) {
+        setData((prev) => {
+          if (!prev) return prev;
+          const lastProbe = {
+            status: next.status as "ok" | "fail" | "timeout" | "fail_clean",
+            toolCount: next.toolCount,
+            tools: next.tools,
+            error: next.error,
+            durationMs: typeof next.durationMs === "number" ? next.durationMs : 0,
+          };
+          return {
+            ...prev,
+            servers: prev.servers.map((row) =>
+              serverKey(row) === key ? { ...row, lastProbe } : row,
+            ),
+          };
+        });
+      } else {
+        throw new Error("探针响应格式无效");
+      }
       setActionMessage("连接测试完成。");
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));

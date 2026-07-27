@@ -9,7 +9,7 @@ import {
 	addMcpServer,
 	listMcpServers,
 	McpServiceError,
-	probeMcpServer,
+	probeMcpServerList,
 	removeMcpServer,
 	setMcpEnabled,
 	updateMcpServer,
@@ -156,7 +156,7 @@ export async function POST(req: Request) {
 				);
 			case "probe":
 				return NextResponse.json(
-					await probeMcpServer({ cwd, name, sourcePath }),
+					await probeMcpServerList({ cwd, name, sourcePath }),
 				);
 			default: {
 				const _never: never = action;
