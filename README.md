@@ -81,7 +81,7 @@ app/
     agent/          # creates/drives AgentSession and exposes SSE events
     auth/           # OAuth and API key management
     cwd/validate/   # custom working directory validation
-    default-cwd/    # pi default working directory lookup
+    default-cwd/    # default project cwd (user home; no pi-cwd-* dirs)
     files/          # file listing, reading, preview, and watching
     home/           # current user home directory
     models/         # available models, default model, thinking levels

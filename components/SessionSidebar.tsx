@@ -1021,7 +1021,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                     <path d="M1 3A1 1 0 0 1 2 2H4L5 3.5H8.5a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 1 8V3Z" />
                   </svg>
-                  <span>使用默认目录</span>
+                  <span>使用家目录 (~)</span>
                 </button>
               )}
 

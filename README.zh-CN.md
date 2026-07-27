@@ -77,7 +77,7 @@ app/
     agent/          # 创建/驱动 AgentSession，提供 SSE 事件流
     auth/           # OAuth 和 API key 管理
     cwd/validate/   # 自定义工作目录校验
-    default-cwd/    # 获取 pi 默认工作目录
+    default-cwd/    # 默认工作目录（用户家目录，不再创建 pi-cwd-*）
     files/          # 文件列表、读取、预览、watch
     home/           # 当前用户 home 目录
     models/         # 可用模型、默认模型、thinking levels
