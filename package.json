@@ -22,7 +22,8 @@
     "!.next/**/*.js.map",
     "public",
     "next.config.ts",
-    "package.json"
+    "package.json",
+    "scripts/mcp-probe-worker.mjs"
   ],
   "scripts": {
     "dev": "bun run next dev --webpack -p 30141",

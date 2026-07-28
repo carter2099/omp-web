@@ -18,15 +18,32 @@ import {
   type AgentSession,
 } from "@oh-my-pi/pi-coding-agent";
 import { initializeExtensions } from "@oh-my-pi/pi-coding-agent/modes/runtime-init";
+import { RpcSubagentRegistry } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-subagents";
+import type {
+  RpcSubagentFrame,
+  RpcSubagentSubscriptionLevel,
+} from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-types";
+import type { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { getOmpRuntime } from "./omp-runtime";
+import { applyDiscoverySettings, getOmpRuntime } from "./omp-runtime";
 import { invalidateModelsCache } from "./models-cache";
 import { cacheSessionPath, invalidateSessionListCache } from "./session-reader";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
 import type { ExtensionUiRequest, ExtensionUiResponse, ExtensionWidgetItem } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS } from "./custom-ui-terminal";
+import { createIdleTimer, type IdleTimer } from "./session-idle-timer";
+import {
+  getSubagentMessages,
+  getSubagents,
+  listSubagentHistoryCommand,
+} from "./subagent-commands";
+import { hasLiveSubagents } from "./subagent-live";
+import {
+  isRpcSubagentSubscriptionLevel,
+  SubagentCommandError,
+} from "./subagent-types";
 
 // ============================================================================
 // Types
@@ -68,9 +85,51 @@ type ExtensionBindingOptions = {
   forceEmptySystemPrompt?: boolean;
 };
 
-const CODING_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
+/** OMP built-in + legacy aliases — used so withExtensionTools only re-adds MCP/custom tools. */
+const CODING_TOOL_NAMES = [
+  "read",
+  "bash",
+  "edit",
+  "ast_grep",
+  "ast_edit",
+  "ask",
+  "debug",
+  "eval",
+  "github",
+  "glob",
+  "grep",
+  "lsp",
+  "inspect_image",
+  "browser",
+  "checkpoint",
+  "rewind",
+  "task",
+  "hub",
+  "todo",
+  "web_search",
+  "write",
+  "memory_edit",
+  "retain",
+  "recall",
+  "reflect",
+  "learn",
+  "manage_skill",
+  // legacy pi ids
+  "find",
+  "search",
+  "ls",
+];
 const CUSTOM_UI_KEYBINDINGS = new TuiKeybindingsManager(TUI_KEYBINDINGS);
-const IDLE_MS = 10 * 60 * 1000;
+/** Parent session idle timeout (10 minutes). Exported for idle/subagent unit tests. */
+export const IDLE_MS = 10 * 60 * 1000;
+
+type AgentSessionWrapperOptions = {
+  setToolUIContext?: (uiContext: ExtensionUiContextLike, hasUI: boolean) => void;
+  eventBus?: EventBus;
+  idleMs?: number;
+  setTimeoutFn?: typeof setTimeout;
+  clearTimeoutFn?: typeof clearTimeout;
+};
 
 function withExtensionTools(session: AgentSessionLike, toolNames: string[]): string[] {
   if (toolNames.length === 0) return [];
@@ -80,7 +139,9 @@ function withExtensionTools(session: AgentSessionLike, toolNames: string[]): str
     .getAllToolNames()
     .filter((name) => !codingToolNames.has(name));
 
-  return [...new Set([...toolNames, ...extensionToolNames])];
+  // Non-empty allow-lists always keep `task` so SubAgents can be spawned from the web UI.
+  // Empty / preset none stays empty (no task).
+  return [...new Set([...toolNames, "task", ...extensionToolNames])];
 }
 
 function systemPromptText(session: AgentSessionLike): string {
@@ -129,16 +190,39 @@ export class AgentSessionWrapper {
   private extensionBindingError: unknown = null;
   private forceEmptySystemPrompt = false;
   private unsubscribe: (() => void) | null = null;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleTimer: IdleTimer;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
   private setToolUIContext: ((uiContext: ExtensionUiContextLike, hasUI: boolean) => void) | null = null;
+  /** Captured EventBus from createAgentSession; kept across inner.reload(). */
+  private eventBus: EventBus | null = null;
+  /**
+   * OMP RpcSubagentRegistry bound to eventBus.
+   * Recreated only on new createAgentSession — never on same-session reload.
+   */
+  private subagentRegistry: RpcSubagentRegistry | null = null;
+  /**
+   * Client-facing SSE subscription level. Independent of the registry internal
+   * level: registry always stays at least `progress` so live-set transitions
+   * still reset idle and call notifyRunningChange when the UI level is `off`.
+   */
+  private subagentSseLevel: RpcSubagentSubscriptionLevel = "progress";
+  /** Tracks whether any live child was present for notifyRunningChange edge. */
+  private hadLiveSubagents = false;
 
   constructor(
     public readonly inner: AgentSessionLike,
-    options?: { setToolUIContext?: (uiContext: ExtensionUiContextLike, hasUI: boolean) => void },
+    options?: AgentSessionWrapperOptions,
   ) {
     this.setToolUIContext = options?.setToolUIContext ?? null;
+    this.eventBus = options?.eventBus ?? null;
+    this.idleTimer = createIdleTimer({
+      idleMs: options?.idleMs ?? IDLE_MS,
+      isRunning: () => this.isRunning(),
+      onIdle: () => this.destroy(),
+      setTimeoutFn: options?.setTimeoutFn,
+      clearTimeoutFn: options?.clearTimeoutFn,
+    });
   }
 
   get sessionId(): string {
@@ -154,10 +238,24 @@ export class AgentSessionWrapper {
   }
 
   isRunning(): boolean {
-    return this._alive && (this.promptRunning || this.inner.isStreaming || this.inner.isCompacting || this.inner.isBashRunning);
+    if (!this._alive) return false;
+    if (
+      this.promptRunning
+      || this.inner.isStreaming
+      || this.inner.isCompacting
+      || this.inner.isBashRunning
+    ) {
+      return true;
+    }
+    // Detached SubAgents keep the parent wrapper alive (Oracle idle lock).
+    return hasLiveSubagents(this.subagentRegistry?.getSubagents() ?? []);
   }
 
   start(): void {
+    if (this.eventBus && !this.subagentRegistry) {
+      this.attachSubagentRegistry(this.eventBus);
+    }
+
     this.unsubscribe = this.inner.subscribe((raw) => {
       this.resetIdleTimer();
       const event = raw as AgentEvent;
@@ -171,6 +269,60 @@ export class AgentSessionWrapper {
     });
     this.resetIdleTimer();
     notifyRunningChange();
+  }
+
+  /**
+   * Attach OMP RpcSubagentRegistry to the session EventBus.
+   * Default subscription level is "progress".
+   */
+  private attachSubagentRegistry(eventBus: EventBus): void {
+    this.subagentRegistry = new RpcSubagentRegistry(eventBus, (frame) => {
+      this.handleSubagentFrame(frame);
+    });
+    this.subagentRegistry.setSubscriptionLevel("progress");
+    this.hadLiveSubagents = hasLiveSubagents(this.subagentRegistry.getSubagents());
+  }
+
+  private handleSubagentFrame(frame: RpcSubagentFrame): void {
+    // Any registry frame (even when client SSE level is off) resets idle and
+    // drives running-badge edges from the live child set.
+    this.resetIdleTimer();
+    const live = hasLiveSubagents(this.subagentRegistry?.getSubagents() ?? []);
+    if (live !== this.hadLiveSubagents) {
+      this.hadLiveSubagents = live;
+      notifyRunningChange();
+    }
+
+    // SSE frames suppressed at client level `off`; events only when requested.
+    if (this.subagentSseLevel === "off") return;
+    if (frame.type === "subagent_event" && this.subagentSseLevel !== "events") {
+      return;
+    }
+    this.emit({
+      type: frame.type,
+      payload: frame.payload,
+    });
+  }
+
+  /**
+   * Apply client subscription level. Registry stays ≥ progress for internal
+   * live tracking; only SSE emit is gated by subagentSseLevel.
+   */
+  private applySubagentSseSubscription(
+    level: RpcSubagentSubscriptionLevel,
+  ): { level: RpcSubagentSubscriptionLevel } {
+    this.subagentSseLevel = level;
+    const registry = this.requireSubagentRegistry();
+    // Keep registry emitting frames so idle/notify keep working at SSE off.
+    registry.setSubscriptionLevel(level === "off" ? "progress" : level);
+    return { level: this.subagentSseLevel };
+  }
+
+  private requireSubagentRegistry(): RpcSubagentRegistry {
+    if (!this.subagentRegistry) {
+      throw new SubagentCommandError("Subagent event bus is unavailable", 500);
+    }
+    return this.subagentRegistry;
   }
 
   setForceEmptySystemPrompt(force: boolean): void {
@@ -281,14 +433,7 @@ export class AgentSessionWrapper {
   }
 
   private resetIdleTimer(): void {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => {
-      if (this.isRunning()) {
-        this.resetIdleTimer();
-        return;
-      }
-      this.destroy();
-    }, IDLE_MS);
+    this.idleTimer.reset();
   }
 
   private async persistBashOnlySession(): Promise<void> {
@@ -571,7 +716,15 @@ export class AgentSessionWrapper {
       }
 
       case "set_tools": {
-        const toolNames = command.toolNames as string[];
+        // null/undefined = OMP natural default (activate every registered tool).
+        // [] = no tools. non-empty = allow-list (+ task + non-builtin extensions).
+        const toolNames = command.toolNames as string[] | null | undefined;
+        if (toolNames === null || toolNames === undefined) {
+          this.setForceEmptySystemPrompt(false);
+          await this.inner.setActiveToolsByName(this.inner.getAllToolNames());
+          this.applyForcedEmptySystemPrompt();
+          return null;
+        }
         this.setForceEmptySystemPrompt(toolNames.length === 0);
         await this.inner.setActiveToolsByName(withExtensionTools(this.inner, toolNames));
         this.applyForcedEmptySystemPrompt();
@@ -636,21 +789,59 @@ export class AgentSessionWrapper {
         return null;
       }
 
-      default:
-        throw new Error(`Unsupported command: ${type}`);
+      case "set_subagent_subscription": {
+        if (!isRpcSubagentSubscriptionLevel(command.level)) {
+          throw new SubagentCommandError(
+            `Invalid subagent subscription level: ${String(command.level)}`,
+            400,
+          );
+        }
+        return this.applySubagentSseSubscription(command.level);
+      }
+
+      case "get_subagents": {
+        return getSubagents(this.requireSubagentRegistry());
+      }
+
+      case "get_subagent_messages": {
+        const parentSessionFile = this.sessionFile;
+        if (!parentSessionFile) {
+          throw new SubagentCommandError("Parent session file is unavailable", 404);
+        }
+        return getSubagentMessages(
+          this.requireSubagentRegistry(),
+          parentSessionFile,
+          command,
+        );
+      }
+
+      case "list_subagent_history": {
+        return listSubagentHistoryCommand(this.sessionFile);
+      }
+
+      default: {
+        const err = new SubagentCommandError(`Unsupported command: ${type}`, 400);
+        throw err;
+      }
     }
   }
 
   destroy(): void {
     if (!this._alive) return;
     this._alive = false;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer.clear();
     if (this.inner.isBashRunning) this.inner.abortBash();
     this.unsubscribe?.();
     for (const pending of this.pendingUiResponses.values()) pending.cancel();
     for (const id of Array.from(this.activeCustomUis.keys())) this.closeCustomUi(id, undefined);
     this.pendingUiResponses.clear();
     this.pendingUiRequests.clear();
+    // Registry bus listeners must go before inner session dispose (lifecycle lock).
+    if (this.subagentRegistry) {
+      this.subagentRegistry.dispose();
+      this.subagentRegistry = null;
+    }
+    this.hadLiveSubagents = false;
     // Dispose OMP session (async teardown); do not await in destroy callers.
     void this.inner.dispose().catch((err) => {
       console.error("[pi-web] session dispose failed:", err instanceof Error ? err.message : err);
@@ -1057,6 +1248,7 @@ export async function startRpcSession(
     await initTheme();
     const runtime = await getOmpRuntime();
     const settings = await runtime.getSettingsForCwd(cwd);
+    applyDiscoverySettings(settings);
 
     const sessionManager = sessionFile
       ? await SessionManager.open(sessionFile)
@@ -1064,7 +1256,11 @@ export async function startRpcSession(
 
     const emptyTools = toolNames !== undefined && toolNames.length === 0;
 
-    const { session: inner, setToolUIContext } = await createAgentSession({
+    const {
+      session: inner,
+      setToolUIContext,
+      eventBus,
+    } = await createAgentSession({
       cwd,
       agentDir: runtime.agentDir,
       authStorage: runtime.authStorage,
@@ -1093,6 +1289,7 @@ export async function startRpcSession(
         uiContext: ExtensionUiContextLike,
         hasUI: boolean,
       ) => void,
+      eventBus,
     });
     if (emptyTools) {
       wrapper.setForceEmptySystemPrompt(true);

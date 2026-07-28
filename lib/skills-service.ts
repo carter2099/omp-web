@@ -6,7 +6,7 @@ import {
 	type SkillsSettings,
 } from "@oh-my-pi/pi-coding-agent";
 import type { SkillInfo } from "@/lib/api-types";
-import { getOmpRuntime } from "@/lib/omp-runtime";
+import { applyDiscoverySettings, getOmpRuntime } from "@/lib/omp-runtime";
 import { annotateSkillsWithInstallInfo } from "@/lib/skill-lock";
 
 export type SkillDiagnostic = {
@@ -63,6 +63,7 @@ export async function loadSkillsWithInstallInfo(cwd: string): Promise<{
 }> {
 	const runtime = await getOmpRuntime();
 	const settings = await runtime.getSettingsForCwd(cwd);
+	applyDiscoverySettings(settings);
 	const skillsSettings = skillsSettingsFromFactory(settings);
 	const { skills, warnings } = await discoverSkills(
 		cwd,

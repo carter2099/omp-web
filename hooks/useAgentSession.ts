@@ -12,7 +12,32 @@ import type {
 import { normalizeToolCalls } from "@/lib/normalize";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { getToolNamesForPreset, type ToolEntry } from "@/lib/tool-presets";
+import type { TaskEager } from "@/lib/task-eager-shared";
+import { normalizeTaskEager } from "@/lib/task-eager-shared";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import type {
+  RpcSubagentSnapshot,
+  SubagentHistoryRow,
+  SubagentMessagesPage,
+} from "@/lib/subagent-types";
+import {
+  SUBAGENT_CONNECTED_COMMAND_SEQUENCE,
+  applySubagentFrame,
+  emptySubagentMap,
+  listSubagentSnapshots,
+  mergeColdHistory,
+  mergeGetSubagents,
+  type SubagentClientFrame,
+  type SubagentSnapshotMap,
+} from "@/lib/subagent-client-state";
+import {
+  isNearContentEnd,
+  scrolledUpEnough,
+  stickAfterScrollEvent,
+  PROGRAMMATIC_SCROLL_IGNORE_MS,
+  SCROLL_BOTTOM_PAD_PX,
+  scrollTopToRevealBottom,
+} from "@/lib/chat-scroll";
 
 export interface SessionData {
   sessionId: string;
@@ -154,8 +179,6 @@ export interface UseAgentSessionOptions {
 
 export type ThinkingLevelOption = "auto" | "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-const PROGRAMMATIC_SCROLL_IGNORE_MS = 700;
-const USER_SCROLL_INTENT_MS = 1200;
 const PROMPT_SETTLE_INITIAL_DELAY_MS = 800;
 const PROMPT_SETTLE_POLL_MS = 600;
 const PROMPT_SETTLE_MAX_MS = 20_000;
@@ -165,7 +188,6 @@ const EVENT_STREAM_CONNECT_TIMEOUT_MS = 5_000;
 const MAX_NOTICES = 5;
 const NOTICE_VISIBLE_MS = 5000;
 const NOTICE_EXIT_ANIMATION_MS = 180;
-const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Space", "Spacebar"]);
 
 type EventStreamConnectionStatus = "connected" | "timeout" | "closed";
 
@@ -345,6 +367,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [newSessionModel, setNewSessionModel] = useState<SelectedModel | null>(null);
   const [newSessionDefaultModel, setNewSessionDefaultModel] = useState<SelectedModel | null>(null);
   const [toolPreset, setToolPreset] = useState<"none" | "default" | "full">("default");
+  const [taskEager, setTaskEager] = useState<TaskEager>("default");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevelOption>("auto");
   const [retryInfo, setRetryInfo] = useState<{ attempt: number; maxAttempts: number; errorMessage?: string } | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percent: number | null; contextWindow: number; tokens: number | null } | null>(null);
@@ -365,6 +388,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [extensionStatuses, setExtensionStatuses] = useState<ExtensionStatusItem[]>([]);
   const [extensionWidgets, setExtensionWidgets] = useState<ExtensionWidgetItem[]>([]);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessages>({ steering: [], followUp: [] });
+  const [subagentMap, setSubagentMap] = useState<SubagentSnapshotMap>(emptySubagentMap);
+  const [selectedSubagentId, setSelectedSubagentId] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const sessionIdRef = useRef<string | null>(session?.id ?? null);
@@ -372,13 +397,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const bashRunningRef = useRef(false);
   const bashRecoveryIdRef = useRef(0);
   const handleAgentEventRef = useRef<((event: AgentEvent) => void) | null>(null);
+  const subagentGenerationRef = useRef(0);
+  const subagentSessionIdRef = useRef<string | null>(session?.id ?? null);
   const initialScrollDoneRef = useRef(false);
   const lastUserMsgRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollToUserRef = useRef(false);
-  const completionScrollAllowedRef = useRef(true);
+  const stickToBottomRef = useRef(true);
   const executeBashRef = useRef<(command: string, excludeFromContext: boolean) => Promise<void> | undefined>(undefined);
-  const userScrollIntentUntilRef = useRef(0);
   const ignoreProgrammaticScrollUntilRef = useRef(0);
+  const lastScrollTopRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const ensuringNewSessionRef = useRef<Promise<string | null> | null>(null);
@@ -534,6 +561,71 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       firstMessage,
     });
   }, [isNew, newSessionCwd, onSessionCreated]);
+
+  const syncSubagentSessionScope = useCallback((nextSessionId: string | null) => {
+    if (subagentSessionIdRef.current === nextSessionId) return;
+    subagentSessionIdRef.current = nextSessionId;
+    subagentGenerationRef.current += 1;
+    setSubagentMap(emptySubagentMap());
+    setSelectedSubagentId(null);
+  }, []);
+
+  const fetchColdHistory = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const generation = subagentGenerationRef.current;
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/subagents`);
+      if (!res.ok) {
+        if (res.status === 404) return;
+        throw new Error(`Cold history HTTP ${res.status}`);
+      }
+      const body: unknown = await res.json();
+      const rows: SubagentHistoryRow[] = Array.isArray(body)
+        ? (body as SubagentHistoryRow[])
+        : Array.isArray((body as { subagents?: unknown }).subagents)
+          ? ((body as { subagents: SubagentHistoryRow[] }).subagents)
+          : [];
+      if (subagentGenerationRef.current !== generation) return;
+      if (sessionIdRef.current !== sid) return;
+      setSubagentMap((prev) => mergeColdHistory(prev, rows));
+    } catch (e) {
+      // no-excuse-ok: catch — cold history is best-effort UI enrichment
+      console.error("Failed to fetch cold subagent history:", e);
+    }
+  }, []);
+
+  const refreshSubagentsOnConnected = useCallback(async (sid: string) => {
+    const generation = subagentGenerationRef.current + 1;
+    subagentGenerationRef.current = generation;
+    try {
+      await sendAgentCommand(sid, {
+        type: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[0].type,
+        level: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[0].level,
+      });
+      if (
+        subagentGenerationRef.current !== generation
+        || sessionIdRef.current !== sid
+      ) {
+        return;
+      }
+      const data = await sendAgentCommand<{ subagents?: RpcSubagentSnapshot[] }>(sid, {
+        type: SUBAGENT_CONNECTED_COMMAND_SEQUENCE[1].type,
+      });
+      if (
+        subagentGenerationRef.current !== generation
+        || sessionIdRef.current !== sid
+      ) {
+        return;
+      }
+      setSubagentMap((prev) => mergeGetSubagents(prev, data?.subagents ?? []));
+      // Live merge first so cold fill cannot clobber registry truth.
+      await fetchColdHistory();
+    } catch (e) {
+      // no-excuse-ok: catch — SSE reconnect path; next connect retries
+      console.error("Failed to refresh subagents on connected:", e);
+    }
+  }, [fetchColdHistory]);
 
   const ensureNewSession = useCallback(async () => {
     if (sessionIdRef.current) return sessionIdRef.current;
@@ -877,6 +969,32 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
+      case "connected": {
+        const sid =
+          (typeof event.sessionId === "string" && event.sessionId.length > 0
+            ? event.sessionId
+            : null)
+          ?? sessionIdRef.current;
+        if (sid) {
+          syncSubagentSessionScope(sid);
+          void refreshSubagentsOnConnected(sid);
+        }
+        break;
+      }
+      case "subagent_lifecycle":
+      case "subagent_progress":
+      case "subagent_event": {
+        // Child frames only — must not flip parent streaming / agent_end.
+        if (sessionIdRef.current !== subagentSessionIdRef.current) break;
+        const payload = event.payload;
+        if (payload === null || typeof payload !== "object") break;
+        const frame = {
+          type: event.type,
+          payload,
+        } as SubagentClientFrame;
+        setSubagentMap((prev) => applySubagentFrame(prev, frame));
+        break;
+      }
       case "agent_start":
         agentRunningRef.current = true;
         setAgentRunning(true);
@@ -1022,8 +1140,40 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         handleExtensionUiRequest(event as ExtensionUiRequest);
         break;
     }
-  }, [addNotice, finishPromptWithoutStream, handleExtensionUiRequest, loadSession, onAgentEnd]);
+  }, [
+    addNotice,
+    finishPromptWithoutStream,
+    handleExtensionUiRequest,
+    loadSession,
+    onAgentEnd,
+    refreshSubagentsOnConnected,
+    syncSubagentSessionScope,
+  ]);
   handleAgentEventRef.current = handleAgentEvent;
+
+  const selectSubagent = useCallback((subagentId: string | null) => {
+    setSelectedSubagentId(subagentId);
+  }, []);
+
+  const loadSubagentMessages = useCallback(async (selector: {
+    subagentId?: string;
+    sessionFile?: string;
+    fromByte?: number;
+  }): Promise<SubagentMessagesPage> => {
+    const sid = sessionIdRef.current;
+    if (!sid) {
+      throw new Error("No active session for get_subagent_messages");
+    }
+    return sendAgentCommand<SubagentMessagesPage>(sid, {
+      type: "get_subagent_messages",
+      ...selector,
+    });
+  }, []);
+
+  const subagents = useMemo(
+    () => listSubagentSnapshots(subagentMap),
+    [subagentMap],
+  );
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     const trimmedMessage = message.trim();
@@ -1058,7 +1208,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     setAgentPhase(isSlashCommandPrompt ? { kind: "running_command" } : { kind: "waiting_model" });
     dispatch({ type: "start" });
     pendingScrollToUserRef.current = true;
-    completionScrollAllowedRef.current = true;
+    stickToBottomRef.current = true;
 
     const piImages = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
 
@@ -1445,7 +1595,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, []);
 
   const handleToolPresetChange = useCallback(async (preset: "none" | "default" | "full") => {
-    const toolNames = getToolNamesForPreset(preset);
+    // default → null (OMP unrestricted); none → []; full → all built-in names
+    const resolved = getToolNamesForPreset(preset);
+    const toolNames = resolved === undefined ? null : resolved;
     setToolPresetState(preset);
     const sid = sessionIdRef.current ?? await ensuringNewSessionRef.current;
     if (!sid) return;
@@ -1456,9 +1608,62 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [setToolPresetState]);
 
+  const loadTaskEager = useCallback(async (cwd?: string | null) => {
+    try {
+      const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+      const res = await fetch(`/api/settings/task-eager${qs}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { eager?: unknown };
+      setTaskEager(normalizeTaskEager(data.eager));
+    } catch (e) {
+      console.error("Failed to load task.eager:", e);
+    }
+  }, []);
+
+  const handleTaskEagerChange = useCallback(async (next: TaskEager) => {
+    const prev = taskEager;
+    setTaskEager(next);
+    const cwd = session?.cwd ?? newSessionCwd ?? undefined;
+    try {
+      const res = await fetch("/api/settings/task-eager", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eager: next, cwd }),
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { eager?: unknown };
+      setTaskEager(normalizeTaskEager(data.eager));
+    } catch (e) {
+      console.error("Failed to set task.eager:", e);
+      setTaskEager(prev);
+    }
+  }, [taskEager, session?.cwd, newSessionCwd]);
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    messagesEndRef.current?.scrollIntoView({ behavior });
+    // Smooth scrolls need a short ignore so intermediate positions don't unstick.
+    // Instant streaming follow must not refresh a long ignore window (blocks user unstick).
+    if (behavior !== "instant") {
+      ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
+    }
+    const container = scrollContainerRef.current;
+    const end = messagesEndRef.current;
+    if (container && end) {
+      const cRect = container.getBoundingClientRect();
+      const eRect = end.getBoundingClientRect();
+      const top = scrollTopToRevealBottom(
+        container.scrollTop,
+        cRect.bottom,
+        eRect.bottom,
+        SCROLL_BOTTOM_PAD_PX,
+      );
+      container.scrollTo({ top, behavior });
+      lastScrollTopRef.current = top;
+      return;
+    }
+    end?.scrollIntoView({ behavior, block: "end" });
   }, []);
 
   const scrollUserMsgToTop = useCallback(() => {
@@ -1466,24 +1671,73 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     const el = lastUserMsgRef.current;
     if (!container || !el) return;
     const elAbsTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
-    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS;
-    container.scrollTo({ top: elAbsTop - 16, behavior: "smooth" });
-  }, []);
-
-  const markUserScrollIntent = useCallback((event: Event) => {
-    if (event instanceof KeyboardEvent) {
-      if (!SCROLL_KEYS.has(event.key)) return;
-      if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable='true']")) return;
-    }
-    userScrollIntentUntilRef.current = Date.now() + USER_SCROLL_INTENT_MS;
+    ignoreProgrammaticScrollUntilRef.current = Date.now() + PROGRAMMATIC_SCROLL_IGNORE_MS * 2;
+    stickToBottomRef.current = true;
+    const top = elAbsTop - 16;
+    container.scrollTo({ top, behavior: "smooth" });
+    lastScrollTopRef.current = top;
   }, []);
 
   const handleScrollPositionChange = useCallback(() => {
-    if (!agentRunningRef.current) return;
-    if (Date.now() < ignoreProgrammaticScrollUntilRef.current) return;
-    if (Date.now() > userScrollIntentUntilRef.current) return;
-    completionScrollAllowedRef.current = false;
+    const container = scrollContainerRef.current;
+    const end = messagesEndRef.current;
+    if (!container) return;
+    const scrollTop = container.scrollTop;
+    const prevTop = lastScrollTopRef.current;
+    lastScrollTopRef.current = scrollTop;
+    const ignore = Date.now() < ignoreProgrammaticScrollUntilRef.current;
+
+    // User moved viewport up (scrollbar/keys). Skip during programmatic ignore
+    // so scrollUserMsgToTop does not clear stick.
+    if (!ignore && scrolledUpEnough(prevTop, scrollTop)) {
+      stickToBottomRef.current = false;
+      return;
+    }
+
+    let nearBottom = true;
+    if (end) {
+      const cRect = container.getBoundingClientRect();
+      const eRect = end.getBoundingClientRect();
+      nearBottom = isNearContentEnd(cRect.bottom, eRect.bottom);
+    }
+    stickToBottomRef.current = stickAfterScrollEvent({
+      nearBottom,
+      ignoreProgrammatic: ignore,
+      previousStick: stickToBottomRef.current,
+    });
   }, []);
+
+  const handleWheelUnstick = useCallback((e: WheelEvent) => {
+    if (e.deltaY < 0) stickToBottomRef.current = false;
+  }, []);
+
+  const streamingContentKey = useMemo(() => {
+    const msg = streamState.streamingMessage;
+    if (!msg || !("content" in msg) || msg.content == null) return 0;
+    const content = msg.content;
+    if (typeof content === "string") return content.length;
+    if (!Array.isArray(content)) return 0;
+    let len = 0;
+    for (const block of content) {
+      if (
+        block
+        && typeof block === "object"
+        && "type" in block
+        && block.type === "text"
+        && "text" in block
+        && typeof block.text === "string"
+      ) {
+        len += block.text.length;
+      } else {
+        len += 1;
+      }
+    }
+    return len;
+  }, [streamState.streamingMessage]);
+
+  useEffect(() => {
+    void loadTaskEager(session?.cwd ?? newSessionCwd ?? null);
+  }, [session?.cwd, newSessionCwd, loadTaskEager]);
 
   // Load session on mount
   useEffect(() => {
@@ -1537,41 +1791,55 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   }, [data?.tree, activeLeafId, handleLeafChange, onBranchDataChange]);
 
   useEffect(() => {
-    window.addEventListener("keydown", markUserScrollIntent);
-    window.addEventListener("pointerdown", markUserScrollIntent, { passive: true });
-    return () => {
-      window.removeEventListener("keydown", markUserScrollIntent);
-      window.removeEventListener("pointerdown", markUserScrollIntent);
-    };
-  }, [markUserScrollIntent]);
-
-  useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    container.addEventListener("wheel", markUserScrollIntent, { passive: true });
-    container.addEventListener("touchstart", markUserScrollIntent, { passive: true });
     container.addEventListener("scroll", handleScrollPositionChange, { passive: true });
+    container.addEventListener("wheel", handleWheelUnstick, { passive: true });
     return () => {
-      container.removeEventListener("wheel", markUserScrollIntent);
-      container.removeEventListener("touchstart", markUserScrollIntent);
       container.removeEventListener("scroll", handleScrollPositionChange);
+      container.removeEventListener("wheel", handleWheelUnstick);
     };
-  }, [messages.length, loading, handleScrollPositionChange, markUserScrollIntent]);
+  }, [messages.length, loading, handleScrollPositionChange, handleWheelUnstick]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      if (pendingScrollToUserRef.current) {
-        pendingScrollToUserRef.current = false;
-        initialScrollDoneRef.current = true;
-        scrollUserMsgToTop();
-      } else if (!initialScrollDoneRef.current) {
+    if (messages.length === 0 && !streamState.isStreaming) return;
+
+    if (pendingScrollToUserRef.current) {
+      pendingScrollToUserRef.current = false;
+      initialScrollDoneRef.current = true;
+      scrollUserMsgToTop();
+      return;
+    }
+
+    if (!stickToBottomRef.current) return;
+
+    const follow = () => {
+      if (!stickToBottomRef.current) return;
+      if (!initialScrollDoneRef.current) {
         initialScrollDoneRef.current = true;
         scrollToBottom("instant");
-      } else if (!agentRunningRef.current && completionScrollAllowedRef.current) {
-        scrollToBottom("smooth");
+        return;
       }
-    }
-  }, [messages.length, agentRunning, scrollToBottom, scrollUserMsgToTop]);
+      const live = agentRunning || streamState.isStreaming;
+      scrollToBottom(live ? "instant" : "smooth");
+    };
+
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(follow);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [
+    messages.length,
+    agentRunning,
+    streamState.isStreaming,
+    streamingContentKey,
+    scrollToBottom,
+    scrollUserMsgToTop,
+  ]);
 
   // Load model list
   useEffect(() => {
@@ -1619,7 +1887,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   return {
     // State
     data, loading, error, activeLeafId, messages, entryIds, streamState,
-    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, thinkingLevel,
+    agentRunning, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, newSessionModel, toolPreset, taskEager, thinkingLevel,
     retryInfo, contextUsage, systemPrompt, forkingEntryId,
     isCompacting, compactError, compactResult, currentModel, displayModel, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -1627,6 +1895,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     isAutoModelSelection: isNew && newSessionModel === null,
     agentPhase,
     isNew,
+    // SubAgent panel surface for Todo 6
+    subagents,
+    subagentMap,
+    selectedSubagentId,
+    selectSubagent,
+    loadSubagentMessages,
+    fetchColdHistory,
     // Refs
     sessionIdRef, eventSourceRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef, pendingScrollToUserRef, initialScrollDoneRef,
@@ -1635,7 +1910,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
+    handleToolPresetChange, handleTaskEagerChange, handleThinkingLevelChange, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages,
     dispatch, setAgentRunning, setForkingEntryId,
     bashRunning, pendingBash,
     // Subscriptions

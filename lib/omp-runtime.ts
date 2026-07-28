@@ -18,6 +18,7 @@ import {
 	Settings,
 	type AuthStorage,
 } from "@oh-my-pi/pi-coding-agent";
+import { initializeWithSettings } from "@oh-my-pi/pi-coding-agent/discovery";
 
 export type OmpRuntime = {
 	readonly agentDir: string;
@@ -27,7 +28,14 @@ export type OmpRuntime = {
 	invalidateAuth(): Promise<void>;
 	invalidateModels(): Promise<void>;
 	invalidatePlugins(cwd?: string): Promise<void>;
+	/** Clear all per-cwd Settings caches for this agentDir (after settings disk writes). */
+	invalidateSettings(): Promise<void>;
 };
+
+/** Apply Settings.disabledProviders to OMP's process-global discovery denylist. */
+export function applyDiscoverySettings(settings: Settings): void {
+	initializeWithSettings(settings);
+}
 
 type ExclusiveRunner = {
 	runExclusive<T>(fn: () => Promise<T>): Promise<T>;
@@ -175,6 +183,14 @@ class OmpRuntimeHandle implements OmpRuntime {
 			this.#slot.pluginsByKey.delete(key);
 			// Also drop the global "*" view when a project-scoped mutation happens.
 			this.#slot.pluginsByKey.delete("*");
+		});
+	}
+
+	invalidateSettings(): Promise<void> {
+		return this.#slot.exclusive.runExclusive(async () => {
+			// Clear ALL cwd entries — settings are agentDir-scoped on disk; any
+			// cached Settings may hold stale disabledExtensions after MCP enable scrub.
+			this.#slot.settingsByCwd.clear();
 		});
 	}
 }

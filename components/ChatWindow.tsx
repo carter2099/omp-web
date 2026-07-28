@@ -14,6 +14,7 @@ import { useAudio } from "@/hooks/useAudio";
 import { useDragDrop } from "@/hooks/useDragDrop";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { SessionStatsInfo } from "@/lib/pi-types";
+import { SubagentPanel } from "./SubagentPanel";
 import {
   captureScrollDistance,
   getNextVisibleCount,
@@ -21,6 +22,7 @@ import {
   restoreScrollTop,
   VISIBLE_PAGE_SIZE,
 } from "@/lib/chat-lazy-load";
+import { resolveSubagentFocusId } from "@/lib/subagent-client-state";
 
 interface Props {
   session: SessionInfo | null;
@@ -169,7 +171,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
 
   const {
     loading, error, messages, entryIds, streamState,
-    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, thinkingLevel,
+    agentRunning, bashRunning, pendingBash, modelNames, modelList, modelThinkingLevels, modelThinkingLevelMaps, toolPreset, taskEager, thinkingLevel,
     retryInfo, contextUsage, forkingEntryId,
     isCompacting, compactError, compactResult, displayModel: displayModelValue, sessionStats,
     slashCommands, slashCommandsLoading, queuedMessages,
@@ -177,18 +179,25 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     isAutoModelSelection,
     agentPhase,
     isNew,
+    subagents,
+    selectedSubagentId,
     sessionIdRef, messagesEndRef, scrollContainerRef,
     lastUserMsgRef,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
     handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
-    handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands,
+    handleToolPresetChange, handleTaskEagerChange, handleThinkingLevelChange, loadSlashCommands,
+    selectSubagent,
+    loadSubagentMessages,
+    fetchColdHistory,
   } = useAgentSession({
     session, newSessionCwd, onAgentEnd: wrappedOnAgentEnd, onSessionCreated, onSessionForked,
     modelsRefreshKey, chatInputRef, onBranchDataChange, onSystemPromptChange, onSessionStatsPanelOpen,
   });
   const sessionBusy = agentRunning || bashRunning;
+
+  const [panelOpen, setPanelOpen] = useState(false);
 
   // Register the abort handler for the global Esc shortcut
   useEffect(() => {
@@ -311,6 +320,8 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
       compactResult={compactResult}
       toolPreset={toolPreset}
       onToolPresetChange={session || isNew ? handleToolPresetChange : undefined}
+      taskEager={taskEager}
+      onTaskEagerChange={session || isNew ? handleTaskEagerChange : undefined}
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={session || isNew ? handleThinkingLevelChange : undefined}
       availableThinkingLevels={availableThinkingLevels}
@@ -525,6 +536,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
                     showTimestamp={showTimestamp}
                     prevTimestamp={idx > 0 ? (messages[idx - 1] as AgentMessage & { timestamp?: number }).timestamp : undefined}
                     sessionId={session?.id ?? sessionIdRef.current ?? undefined}
+                    onFocusSubagent={(hint) => {
+                      const focusedId = resolveSubagentFocusId(subagents, hint);
+                      selectSubagent(focusedId);
+                      setPanelOpen(true);
+                    }}
                   />
                 );
                 if (!isVisible || options.attachRef === false || currentRefIdx === undefined) return view;
@@ -657,11 +673,14 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               />
             )}
 
-            {agentRunning && (
-              <div style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }} />
-            )}
-
             <div ref={messagesEndRef} />
+
+            {agentRunning && (
+              <div
+                aria-hidden
+                style={{ height: scrollContainerRef.current ? scrollContainerRef.current.clientHeight : "80vh" }}
+              />
+            )}
             </div>
           </div>
         </div>
@@ -671,6 +690,46 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             streamingMessage={streamState.streamingMessage}
             scrollContainer={scrollContainerRef}
             messageRefs={messageRefs}
+          />
+        )}
+        {!panelOpen && !isNew && (session?.id || sessionIdRef.current) && !isMobile && (
+          <button
+            type="button"
+            onClick={() => {
+              setPanelOpen(true);
+              void fetchColdHistory();
+            }}
+            title="子代理 / 历史"
+            style={{
+              position: "absolute",
+              top: 10,
+              right: CHAT_MINIMAP_WIDTH + 10,
+              zIndex: 30,
+              height: 28,
+              padding: "0 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              lineHeight: "26px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-panel)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            历史
+          </button>
+        )}
+        {panelOpen && (
+          <SubagentPanel
+            subagents={subagents}
+            selectedSubagentId={selectedSubagentId}
+            onSelectSubagent={selectSubagent}
+            loadSubagentMessages={loadSubagentMessages}
+            fetchColdHistory={fetchColdHistory}
+            onClose={() => setPanelOpen(false)}
           />
         )}
       </div>

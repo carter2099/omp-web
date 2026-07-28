@@ -4,17 +4,38 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sendAgentCommand } from "@/lib/agent-client";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useTranslations } from "next-intl";
-import type { PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
+import type { PathExtensionInfo, PluginPackageInfo, PluginsResponse } from "@/lib/api-types";
 
 type PluginScope = PluginPackageInfo["scope"];
 type PluginAction = "install" | "remove" | "update" | "disable" | "enable";
 
-function shortenPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+function shortenPath(p: string): string {
+  return p.replace(/^\/(?:Users|home)\/[^/]+/, "~");
+}
+
+function basenamePath(p: string): string {
+  const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? p;
 }
 
 function packageKey(pkg: Pick<PluginPackageInfo, "source" | "scope">): string {
   return `${pkg.scope}\0${pkg.source}`;
+}
+
+function pathExtKey(ext: Pick<PathExtensionInfo, "path">): string {
+  return `path\0${ext.path}`;
+}
+
+function pathStatusColor(status: PathExtensionInfo["status"]): string {
+  if (status === "loaded") return "var(--accent)";
+  if (status === "invalid") return "#f59e0b";
+  return "#ef4444";
+}
+
+function pathStatusLabel(status: PathExtensionInfo["status"]): string {
+  if (status === "loaded") return "Loaded";
+  if (status === "invalid") return "Path exists but unrecognized";
+  return "Path not found";
 }
 
 function resourceSummary(pkg: PluginPackageInfo, t: (key: string, p?: Record<string, any>) => string): string {
@@ -403,6 +424,165 @@ function AddPluginPanel({
   );
 }
 
+function PathExtensionDetail({
+  ext,
+  busy,
+  actionError,
+  actionMessage,
+  onRemove,
+}: {
+  ext: PathExtensionInfo;
+  busy: boolean;
+  actionError: string | null;
+  actionMessage: string | null;
+  onRemove: (ext: PathExtensionInfo) => void;
+}) {
+  const title = ext.packageName ?? basenamePath(ext.path);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 6,
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: pathStatusColor(ext.status),
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 16,
+                fontWeight: 700,
+                color: "var(--text)",
+                fontFamily: "var(--font-mono)",
+                wordBreak: "break-all",
+              }}
+            >
+              {title}
+            </span>
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {pathStatusLabel(ext.status)} · 来自 config.yml 的{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>extensions</code>
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (
+              !window.confirm(
+                `从 config.yml 的 extensions 中移除该路径？\n${ext.configuredPath}`,
+              )
+            ) {
+              return;
+            }
+            onRemove(ext);
+          }}
+          style={buttonStyle(busy, true)}
+        >
+          {busy ? "移除中…" : "移除"}
+        </button>
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "88px 1fr",
+          gap: "8px 12px",
+          fontSize: 12,
+        }}
+      >
+        <div style={{ color: "var(--text-dim)" }}>配置路径</div>
+        <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)", wordBreak: "break-all" }}>
+          {ext.configuredPath}
+        </div>
+        <div style={{ color: "var(--text-dim)" }}>解析路径</div>
+        <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)", wordBreak: "break-all" }}>
+          {shortenPath(ext.path)}
+        </div>
+        {ext.packageName && (
+          <>
+            <div style={{ color: "var(--text-dim)" }}>包名</div>
+            <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>{ext.packageName}</div>
+          </>
+        )}
+        {ext.version && (
+          <>
+            <div style={{ color: "var(--text-dim)" }}>版本</div>
+            <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>{ext.version}</div>
+          </>
+        )}
+      </div>
+
+      {ext.entrypoints.length > 0 && (
+        <div>
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--text-dim)",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            入口
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {ext.entrypoints.map((entry) => (
+              <div
+                key={entry}
+                style={{
+                  fontSize: 12,
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--text)",
+                }}
+              >
+                {entry}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {actionMessage && (
+        <div style={{ fontSize: 12, color: "var(--accent)" }}>{actionMessage}</div>
+      )}
+      {actionError && (
+        <div style={{ fontSize: 12, color: "#ef4444", whiteSpace: "pre-wrap" }}>
+          {actionError}
+        </div>
+      )}
+
+      <div
+        style={{
+          fontSize: 11,
+          color: "var(--text-dim)",
+          lineHeight: 1.5,
+          padding: "10px 12px",
+          borderRadius: 6,
+          background: "var(--bg-panel)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        「移除」会从 <code style={{ fontFamily: "var(--font-mono)" }}>~/.omp/agent/config.yml</code>{" "}
+        的 <code style={{ fontFamily: "var(--font-mono)" }}>extensions</code> 删除该路径。
+        已打开的会话可能仍保留旧扩展，请重新加载会话或新建会话。
+      </div>
+    </div>
+  );
+}
+
 function PackageDetail({
   pkg,
   cwd,
@@ -587,7 +767,10 @@ export function PluginsConfig({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const packages = useMemo(() => data?.packages ?? [], [data?.packages]);
+  const pathExtensions = useMemo(() => data?.pathExtensions ?? [], [data?.pathExtensions]);
   const selectedPackage = packages.find((pkg) => packageKey(pkg) === selected) ?? null;
+  const selectedPathExt = pathExtensions.find((ext) => pathExtKey(ext) === selected) ?? null;
+  const hasAnyItems = packages.length > 0 || pathExtensions.length > 0;
 
   const groupedPackages = useMemo(() => {
     return (["project", "global"] as PluginScope[])
@@ -602,10 +785,14 @@ export function PluginsConfig({
       const res = await fetch(`/api/plugins?cwd=${encodeURIComponent(cwd)}`);
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      setData(next);
-      setAddMode((current) => next.packages.length === 0 || current);
+      const nextPaths = next.pathExtensions ?? [];
+      setData({ ...next, pathExtensions: nextPaths });
+      const empty = next.packages.length === 0 && nextPaths.length === 0;
+      setAddMode((current) => empty || current);
       setSelected((current) => {
         if (current && next.packages.some((pkg) => packageKey(pkg) === current)) return current;
+        if (current && nextPaths.some((ext) => pathExtKey(ext) === current)) return current;
+        if (nextPaths[0]) return pathExtKey(nextPaths[0]);
         return next.packages[0] ? packageKey(next.packages[0]) : null;
       });
     } catch (err) {
@@ -632,10 +819,17 @@ export function PluginsConfig({
       });
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      setData(next);
+      const nextPaths = next.pathExtensions ?? [];
+      setData({ ...next, pathExtensions: nextPaths });
       if (action === "remove") {
-        setSelected(next.packages[0] ? packageKey(next.packages[0]) : null);
-        if (next.packages.length === 0) setAddMode(true);
+        const nextSel =
+          next.packages[0]
+            ? packageKey(next.packages[0])
+            : nextPaths[0]
+              ? pathExtKey(nextPaths[0])
+              : null;
+        setSelected(nextSel);
+        if (next.packages.length === 0 && nextPaths.length === 0) setAddMode(true);
         setActionMessage(t("packageRemoved"));
       } else {
         const key = action === "install" ? "packageInstalled" : `package${action.charAt(0).toUpperCase() + action.slice(1)}d`;
@@ -647,6 +841,44 @@ export function PluginsConfig({
       setBusyKey(null);
     }
   }, [cwd]);
+
+  const removePathExt = useCallback(
+    async (ext: PathExtensionInfo) => {
+      const key = pathExtKey(ext);
+      setBusyKey(`remove-path:${key}`);
+      setActionError(null);
+      setActionMessage(null);
+      try {
+        const res = await fetch("/api/plugins", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "remove-path",
+            path: ext.configuredPath,
+            cwd,
+          }),
+        });
+        const next = (await res.json()) as PluginsResponse & { error?: string };
+        if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
+        const nextPaths = next.pathExtensions ?? [];
+        setData({ ...next, pathExtensions: nextPaths });
+        const nextSel =
+          nextPaths[0]
+            ? pathExtKey(nextPaths[0])
+            : next.packages[0]
+              ? packageKey(next.packages[0])
+              : null;
+        setSelected(nextSel);
+        if (next.packages.length === 0 && nextPaths.length === 0) setAddMode(true);
+        setActionMessage("路径扩展已从 config.yml 移除。");
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [cwd],
+  );
 
   const installPlugin = useCallback(async () => {
     const source = installSource.trim();
@@ -663,7 +895,7 @@ export function PluginsConfig({
       });
       const next = (await res.json()) as PluginsResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
-      setData(next);
+      setData({ ...next, pathExtensions: next.pathExtensions ?? [] });
       const installed = findInstalledPackage(next.packages, source, installScope);
       setSelected(installed ? packageKey(installed) : key);
       setAddMode(false);
@@ -788,12 +1020,96 @@ export function PluginsConfig({
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "#ef4444" }}>
                   {error}
                 </div>
-              ) : packages.length === 0 ? (
+              ) : !hasAnyItems ? (
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
                   {t("noPlugins")}
                 </div>
               ) : (
-                groupedPackages.map((group) => (
+                <>
+                {pathExtensions.length > 0 && (
+                  <div style={{ marginBottom: 6 }}>
+                    <div
+                      style={{
+                        padding: "4px 8px 3px",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "var(--text-dim)",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      路径扩展
+                    </div>
+                    {pathExtensions.map((ext) => {
+                      const key = pathExtKey(ext);
+                      const isSelected = !addMode && selected === key;
+                      const title = ext.packageName ?? basenamePath(ext.path);
+                      return (
+                        <div
+                          key={key}
+                          onClick={() => {
+                            setSelected(key);
+                            setAddMode(false);
+                            setActionError(null);
+                            setActionMessage(null);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            padding: "8px 8px",
+                            borderRadius: 5,
+                            cursor: "pointer",
+                            background: isSelected ? "var(--bg-selected)" : "none",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = "var(--bg-hover)";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) e.currentTarget.style.background = "none";
+                          }}
+                        >
+                          <span
+                            style={{
+                              flexShrink: 0,
+                              width: 7,
+                              height: 7,
+                              borderRadius: "50%",
+                              background: pathStatusColor(ext.status),
+                            }}
+                          />
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: isSelected ? 600 : 400,
+                                color: "var(--text)",
+                                fontFamily: "var(--font-mono)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {title}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "var(--text-dim)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                marginTop: 2,
+                              }}
+                            >
+                              {pathStatusLabel(ext.status)} · config.yml
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {groupedPackages.map((group) => (
                   <div key={group.scope} style={{ marginBottom: 6 }}>
                     <div
                       style={{
@@ -886,9 +1202,10 @@ export function PluginsConfig({
                           </div>
                         </div>
                       );
-                    })}
+                     })}
                   </div>
-                ))
+                ))}
+                </>
               )}
             </div>
             <div style={{ padding: "8px 6px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
@@ -949,7 +1266,16 @@ export function PluginsConfig({
                 onScopeChange={setInstallScope}
                 onInstall={installPlugin}
               />
-            ) : loading ? null : selectedPackage ? (
+            ) : loading ? null : selectedPathExt ? (
+              <PathExtensionDetail
+                key={pathExtKey(selectedPathExt)}
+                ext={selectedPathExt}
+                busy={busyKey === `remove-path:${pathExtKey(selectedPathExt)}`}
+                actionError={actionError}
+                actionMessage={actionMessage}
+                onRemove={removePathExt}
+              />
+            ) : selectedPackage ? (
               <PackageDetail
                 key={packageKey(selectedPackage)}
                 pkg={selectedPackage}
@@ -999,7 +1325,9 @@ export function PluginsConfig({
               </span>
             ) : (
               <span>
-                {data ? `${t("nExtensions", { count: data.totals.extensions })} · ${t("nSkills", { count: data.totals.skills })} · ${t("nPrompts", { count: data.totals.prompts })} · ${t("nThemes", { count: data.totals.themes })}` : ""}
+                {data
+                  ? `${t("nExtensions", { count: data.totals.extensions })} · ${t("nSkills", { count: data.totals.skills })} · ${t("nPrompts", { count: data.totals.prompts })} · ${t("nThemes", { count: data.totals.themes })}${data.pathExtensions?.length ? ` · ${t("nPathExtensions", { count: data.pathExtensions.length })}` : ""}`
+                  : ""}
               </span>
             )}
           </div>

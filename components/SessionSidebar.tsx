@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react";
 import type { SessionInfo } from "@/lib/types";
+import { DirectoryPicker } from "./DirectoryPicker";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { useTranslations } from "next-intl";
 
@@ -334,7 +335,6 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathValue, setCustomPathValue] = useState("");
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
-  const customPathInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   // Worktree switcher state
   const [worktreeState, setWorktreeState] = useState<WorktreeState | null>(null);
@@ -587,27 +587,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
 
   const handleCustomPathClick = useCallback(async () => {
     const desktop = window.piDesktop;
-    if (!desktop) {
-      setCustomPathOpen(true);
-      setCustomPathError(null);
-      setTimeout(() => customPathInputRef.current?.focus(), 0);
+    if (desktop) {
+      try {
+        setCustomPathError(null);
+        const path = await desktop.selectDirectory();
+        if (path === null) return;
+        setCustomPathValue(path);
+        setCustomPathOpen(true);
+        await commitCustomPath(path);
+      } catch (e) {
+        setCustomPathOpen(true);
+        setCustomPathError(e instanceof Error ? e.message : String(e));
+      }
       return;
     }
-
-    try {
-      setCustomPathError(null);
-      const path = await desktop.selectDirectory();
-      if (path === null) return;
-
-      setCustomPathValue(path);
-      setCustomPathOpen(true);
-      await commitCustomPath(path);
-    } catch (e) {
-      setCustomPathOpen(true);
-      setCustomPathError(e instanceof Error ? e.message : String(e));
-      setTimeout(() => customPathInputRef.current?.focus(), 0);
-    }
-  }, [commitCustomPath]);
+    setCustomPathOpen(true);
+    setCustomPathError(null);
+    setCustomPathValue(selectedCwd ?? homeDir ?? "");
+  }, [commitCustomPath, selectedCwd, homeDir]);
 
   const handleDefaultCwd = useCallback(async () => {
     try {
@@ -1058,85 +1055,22 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                   <span>{t("customPath")}</span>
                 </button>
               ) : (
-                <div style={{ padding: "6px 8px", borderTop: visibleProjects.length > 0 ? "none" : undefined }}>
-                  <input
-                    ref={customPathInputRef}
-                    value={customPathValue}
-                    onChange={(e) => {
-                      setCustomPathValue(e.target.value);
+                <div style={{ borderTop: visibleProjects.length > 0 ? "1px solid var(--border)" : undefined }}>
+                  <DirectoryPicker
+                    initialPath={customPathValue || selectedCwd || homeDir || undefined}
+                    selecting={customPathValidating}
+                    error={customPathError}
+                    onSelect={(path) => {
+                      setCustomPathValue(path);
+                      void commitCustomPath(path);
+                    }}
+                    onCancel={() => {
+                      setCustomPathOpen(false);
+                      setCustomPathValue("");
                       setCustomPathError(null);
                     }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void commitCustomPath();
-                      }
-                      if (e.key === "Escape") {
-                        setCustomPathOpen(false);
-                        setCustomPathValue("");
-                        setCustomPathError(null);
-                      }
-                    }}
-                    placeholder="/path/to/project"
-                    style={{
-                      width: "100%",
-                      fontSize: 11,
-                      fontFamily: "var(--font-mono)",
-                      padding: "5px 8px",
-                      border: "1px solid var(--accent)",
-                      borderRadius: 5,
-                      outline: "none",
-                      background: "var(--bg)",
-                      color: "var(--text)",
-                      boxSizing: "border-box",
-                    }}
                   />
-                  {customPathError && (
-                    <div style={{
-                      marginTop: 5,
-                      color: "#dc2626",
-                      fontSize: 11,
-                      lineHeight: 1.35,
-                      overflowWrap: "anywhere",
-                    }}>
-                      {customPathError}
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
-                    <button
-                      onClick={() => void commitCustomPath()}
-                      disabled={customPathValidating || !customPathValue.trim()}
-                      style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--accent)",
-                        border: "none",
-                        borderRadius: 5,
-                        color: "#fff",
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: customPathValidating || !customPathValue.trim() ? "not-allowed" : "pointer",
-                        opacity: customPathValidating || !customPathValue.trim() ? 0.65 : 1,
-                      }}
-                    >
-                      {customPathValidating ? t("checking") : t("open")}
-                    </button>
-                    <button
-                      onClick={() => { setCustomPathOpen(false); setCustomPathValue(""); setCustomPathError(null); }}
-                      style={{
-                        flex: 1,
-                        padding: "4px 0",
-                        background: "var(--bg-hover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 5,
-                        color: "var(--text-muted)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {t("cancel")}
-                    </button>
-                  </div>
+
                 </div>
               )}
           </AnimatedDropdown>

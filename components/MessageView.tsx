@@ -7,6 +7,7 @@ import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
 import { isEmptyThinkingBlock } from "@/lib/message-display";
 import { parseUnifiedPatch, type SplitDiffCell } from "@/lib/patch";
+import { extractTaskResultFocusIds } from "@/lib/subagent-client-state";
 import type {
   AgentMessage,
   UserMessage,
@@ -69,6 +70,11 @@ interface Props {
   showTimestamp?: boolean;
   prevTimestamp?: number;
   sessionId?: string;
+  onFocusSubagent?: (hint: {
+    toolCallId: string;
+    sessionFiles?: string[];
+    agentIds?: string[];
+  }) => void;
 }
 
 function formatTime(ts?: number): string | null {
@@ -98,13 +104,13 @@ function haveSameRelevantToolResults(
   return true;
 }
 
-export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId, onFocusSubagent }: Props) {
   const t = useTranslations("messageView");
   if (message.role === "user") {
     return <UserMessageView t={t} message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView t={t} message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView t={t} message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} onFocusSubagent={onFocusSubagent} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -351,6 +357,7 @@ function AssistantMessageView({
   prevTimestamp,
   sessionId,
   entryId,
+  onFocusSubagent,
 }: {
   t: (key: string, values?: Record<string, string | number | Date>) => string;
   message: AssistantMessage;
@@ -363,6 +370,11 @@ function AssistantMessageView({
   prevTimestamp?: number;
   sessionId?: string;
   entryId?: string;
+  onFocusSubagent?: (hint: {
+    toolCallId: string;
+    sessionFiles?: string[];
+    agentIds?: string[];
+  }) => void;
 }) {
   const time = showTimestamp ? formatTime(message.timestamp) : null;
   const blockItems = (message.content ?? [])
@@ -530,7 +542,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView t={t} key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView t={t} key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} onFocusSubagent={onFocusSubagent} />
         ))}
       </div>
 
@@ -583,7 +595,7 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ t, block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ t, block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex, onFocusSubagent }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number; onFocusSubagent?: (hint: { toolCallId: string; sessionFiles?: string[]; agentIds?: string[] }) => void }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
@@ -594,7 +606,7 @@ function BlockView({ t, block, toolResults, isStreaming, streamingDuration, tool
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock t={t} block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock t={t} block={tc} result={result} duration={duration} onFocusSubagent={onFocusSubagent} />;
   }
   return null;
 }
@@ -686,7 +698,7 @@ function ThinkingBlock({ t, block, duration, sessionId, entryId, blockIndex }: {
 }
 
 
-function ToolCallBlock({ t, block, result, duration }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+function ToolCallBlock({ t, block, result, duration, onFocusSubagent }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: ToolCallContent; result?: ToolResultMessage; duration?: number; onFocusSubagent?: (hint: { toolCallId: string; sessionFiles?: string[]; agentIds?: string[] }) => void }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
@@ -699,6 +711,8 @@ function ToolCallBlock({ t, block, result, duration }: { t: (key: string, values
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
 
+  const isTaskTool = block.toolName === "task";
+
   return (
     <div
       style={{
@@ -710,39 +724,101 @@ function ToolCallBlock({ t, block, result, duration }: { t: (key: string, values
       }}
     >
       {/* ── Tool call header ── */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
+      <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: 7,
           width: "100%",
           padding: "6px 10px",
-          background: "none",
-          border: "none",
           color: "var(--text-muted)",
-          cursor: "pointer",
           fontSize: 12,
-          textAlign: "left",
           minWidth: 0,
         }}
       >
-        <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
-          {block.toolName}
-        </span>
-        <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-          {getToolPreview(block)}
-        </span>
-        {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{t("nSeconds", { duration })}</span>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            padding: 0,
+            flex: 1,
+            minWidth: 0,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ color: isError ? "#f87171" : "#16a34a", fontFamily: "var(--font-mono)", fontWeight: 600, fontSize: 11, flexShrink: 0 }}>
+            {block.toolName}
+          </span>
+          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+            {isTaskTool ? t("launchSubAgent") : getToolPreview(block)}
+          </span>
+          {duration !== undefined && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{t("nSeconds", { duration })}</span>
+          )}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s", marginLeft: 4 }}>
+            <polyline points="2 3.5 5 6.5 8 3.5" />
+          </svg>
+        </button>
+
+        {isTaskTool && onFocusSubagent && (
+          <button
+            onClick={() => {
+              const extracted = extractTaskResultFocusIds(result?.details);
+              onFocusSubagent({
+                toolCallId: block.toolCallId,
+                sessionFiles:
+                  extracted.sessionFiles.length > 0
+                    ? extracted.sessionFiles
+                    : undefined,
+                agentIds:
+                  extracted.agentIds.length > 0 ? extracted.agentIds : undefined,
+              });
+            }}
+            style={{
+              padding: "2px 8px",
+              background: "var(--accent)",
+              color: "white",
+              border: "none",
+              borderRadius: 4,
+              fontSize: 11,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {t("openConversation")}
+          </button>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
-          <polyline points="2 3.5 5 6.5 8 3.5" />
-        </svg>
-      </button>
+      </div>
+
+      {/* Task tool compact card */}
+      {isTaskTool && block.input && typeof block.input === "object" && (
+        <div
+          style={{
+            padding: "8px 10px",
+            background: "var(--bg-panel)",
+            borderTop: "1px solid var(--border)",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          <div style={{ fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
+            任务: {(block.input as Record<string, unknown>).task as string}
+          </div>
+          <div style={{ display: "flex", gap: 12, color: "var(--text-muted)", fontSize: 11 }}>
+            <span>执行代理: {(block.input as Record<string, unknown>).agent as string || "task"}</span>
+            <span>状态: {result ? (result.isError ? "失败" : "已完成") : "执行中"}</span>
+          </div>
+        </div>
+      )}
 
       {/* ── Expanded: input args ── */}
-      {expanded && !isEditTool && (
+      {expanded && !isEditTool && !isTaskTool && (
         <pre
           style={{
             margin: 0,
@@ -762,7 +838,7 @@ function ToolCallBlock({ t, block, result, duration }: { t: (key: string, values
       )}
 
       {/* ── Paired result — only shown when expanded ── */}
-      {expanded && result && (
+      {expanded && result && !isTaskTool && (
         resultDiff ? (
           <PairedDiffResult
             t={t}

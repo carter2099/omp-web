@@ -52,13 +52,16 @@ app/api/
   auth/login/[provider]/route.ts  GET OAuth/device-code SSE | POST manual code
   auth/logout/[provider]/route.ts POST OAuth logout
   auth/providers/route.ts         GET OAuth provider list
+  cwd/browse/route.ts             GET  ?path= — list child dirs for project picker
   cwd/validate/route.ts           POST validate/select a cwd
-  default-cwd/route.ts            POST create ~/pi-cwd-YYYYMMDD
+  default-cwd/route.ts            POST return user home as default cwd (no pi-cwd-* creation)
   files/[...path]/route.ts        GET file contents for viewer
   home/route.ts                   GET user home directory
   models/route.ts                 GET { models, modelList, defaultModel }
   models-config/route.ts          GET/PUT — read/write ~/.omp/agent/models.yml
+  models-config/sync/route.ts     POST AI Way / gateway model sync → models.yml
   models-config/test/route.ts     POST test a configured model/provider
+  mcp/route.ts                     GET/POST /api/mcp MCP inventory and mutations
   plugins/route.ts                GET/POST package plugin management
   skills/route.ts                 GET/PATCH loaded skills and disable-model-invocation
   skills/install/route.ts         POST install skills through npx skills add
@@ -71,7 +74,11 @@ lib/
   file-access.ts       allowed file roots for /api/files and worktrees
   file-paths.ts        client/server path encoding helpers
   markdown.ts          shared markdown helpers
+  mcp-service.ts       MCP config inventory, mutations, and session-facing settings updates
+  mcp-probe.ts         isolated MCP connection probe orchestration
+  mcp-redact.ts        redacts MCP env, headers, auth, oauth, and URL secrets
   npx.ts               npx runner used by skill install
+  package-root.ts      package/project root resolution for MCP resources
   pi-types.ts          local structural types for pi SDK objects
   rpc-manager.ts      AgentSessionWrapper + registry + startRpcSession
   session-reader.ts   SessionManager wrappers + path cache + buildSessionContext adapter
@@ -92,6 +99,7 @@ components/
   ModelsConfig.tsx    modal for editing models.yml (opened from sidebar bottom)
   PluginsConfig.tsx   modal for installed package plugins
   SkillsConfig.tsx    modal for loaded/search/installable skills
+  McpConfig.tsx       MCP configuration modal opened from the sidebar/footer
   FileExplorer.tsx    file tree inside sidebar
   FileIcons.tsx       file icon helpers
   FileViewer.tsx      file content in a tab
@@ -103,6 +111,9 @@ hooks/
   useDragDrop.ts      shared drag/drop state
   useIsMobile.ts      responsive breakpoint hook
   useTheme.ts         theme state
+
+scripts/
+  mcp-probe-worker.mjs isolated MCP probe worker
 ```
 
 ---
@@ -154,8 +165,9 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - Sessions whose cwd points at a removed worktree are inferred back into the main project instead of becoming a phantom project row.
 
 ### File access allow-list
-- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, `~/pi-cwd-*`, and roots explicitly added with `allowFileRoot()`.
-- `/api/cwd/validate`, `/api/default-cwd`, and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
+- `/api/files` is intentionally not a general filesystem browser. Allowed roots come from session cwds, their resolved project roots, and roots explicitly added with `allowFileRoot()`.
+- `/api/cwd/browse` lists immediate child directories for the project path picker (default path = home). Selection still goes through `/api/cwd/validate`.
+- `/api/cwd/validate`, `/api/default-cwd` (returns home only — does **not** create `~/pi-cwd-YYYYMMDD`), and `/api/worktrees` call `allowFileRoot()` when they make a new location browsable.
 
 ### Plugins and skills
 - `/api/plugins` uses pi's `SettingsManager` + `DefaultPackageManager` for global/project package install, remove, update, enable, and disable. Disabling writes empty `extensions/skills/prompts/themes` arrays for that package entry.
@@ -168,6 +180,16 @@ Newer pi emits `compaction_start` / `compaction_end`; older versions emitted `au
 - OAuth/device-code/manual-code flows are streamed by `GET /api/auth/login/[provider]`; manual code responses POST back with a short-lived token stored in `globalThis.__piLoginCallbacks`.
 - API-key routes store and remove keys through `AuthStorage`. Status endpoints must never return the raw key.
 - The model test route is `app/api/models-config/test/route.ts`; `app/api/models/test/` is not a real route.
+- **AI Way sync** (`POST /api/models-config/sync`, UI: Models → provider →「从网关同步模型」): fetches `{baseUrl}/models`, maps `native_endpoint_types` → per-model `api` (`messages`→`anthropic-messages`, `responses`→`openai-responses`, `completions`→`openai-completions`), writes `thinking.mode`/`efforts`/`defaultLevel` from capabilities, skips embeddings/rerank/fim. Sync **persists immediately** via `saveModelsConfig` (no extra Save required for the write). Logic lives in `lib/aiway-sync.ts`.
+
+### MCP configuration
+- Native MCP config paths are `~/.omp/agent/mcp.json` and `<project>/.omp/mcp.json`, resolved by OMP `getMCPConfigPath`.
+- MCP inventory loads the MCP capability with `includeDisabled: true` and iterates `cap.all`, so disabled and shadowed rows remain visible.
+- Mutations write only native `user` or `project` configs. Updates preserve secrets: omitted secret fields keep their existing values, while provided objects replace them.
+- Probing runs in an isolated `scripts/mcp-probe-worker.mjs` worker. The parent injects `PI_WEB_MCP_PROBE_TOKEN`, kills the worker/process group, and on Linux iteratively reaps token-tagged detached descendants. Non-Linux platforms may retain residual orphan processes if a detached descendant escapes termination.
+- Config changes do not hot-reload into a running `AgentSession`; they apply on the next `ensure_session` or new session. Enabling scrubs stale `disabledExtensions` and calls `invalidateSettings` after flush/readback.
+- Responses never return raw env, headers, auth, oauth, or URL secrets; probe errors are redacted.
+- The sidebar/footer MCP button opens the `McpConfig` modal and is cwd-gated.
 
 ### Completion sound
 - `hooks/useAudio.ts` stores the toggle in `localStorage` as `pi-sound-enabled` and reuses one `AudioContext`.
@@ -202,3 +224,36 @@ Location: `~/.omp/agent/sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`
 --accent --user-bg --tool-bg
 --font-mono
 ```
+
+---
+
+## SubAgents (子代理) Architecture
+
+### SubAgent vs Fork
+- **Fork** (新建会话): Creates a completely independent new `.jsonl` session file, copying history up to the fork point. Shown as a separate child row in the sidebar session tree.
+- **SubAgent** (子代理): Transient helper agents spawned by the parent via the `task` tool. They run asynchronously as background processes. Their transcripts and progress live within the parent session's *artifacts directory* (a sub-directory named after the parent session file without the `.jsonl` extension). They are **not** mixed into the sidebar fork tree.
+
+### Lifecycle & Idle Timeout Boundary
+- **Detached Sizing**: Live subagents run in the background. The parent wrapper `isRunning()` must return `true` if any child status is live (non-terminal: `running` or `pending`).
+- **Idle Preservation**: Any subagent frame (`subagent_lifecycle`, `subagent_progress`, `subagent_event`) received resets the parent wrapper's 10-minute idle timer.
+- **Sidebar Badges**: Status transitions that change "any live children?" trigger `notifyRunningChange()` to keep sidebar badges updated while only subagents are working.
+
+### Security & Path Policy (Always-Assert)
+- **Realpath Containment**: No raw filesystem reads are allowed. After resolving a session path using `resolveSessionFile`, we strictly assert `assertSubagentSessionFileAllowed(parentSessionFile, resolvedPath)` to verify that the resolved path is located strictly inside the parent artifacts folder (`realpath(parentSessionFile.slice(0, -6) + path.sep)`).
+- **History List Walker**: The metadata walker `listSubagentHistory` scans the artifacts directory, resolves and asserts containment on each `.jsonl` *before* opening it, and only reads minimal header/status metadata. It **never** uses `collectSubSessions()` which opens files unscoped.
+- **transcript read cap**: `get_subagent_messages` reads a maximum of `SUBAGENT_TRANSCRIPT_MAX_BYTES = 1_048_576` (1 MiB) per page. Returns `{ nextByte, eof, content, reset }` for byte-cursor paging.
+
+### Commands & HTTP Status Mappings
+
+| Command / API | HTTP Code | Cause / Details |
+|---|---|---|
+| `set_subagent_subscription` | **200** / **400** | Sets subscription level (`off`, `progress`, `events`). 400 for bad level. |
+| `get_subagents` | **200** | Returns live subagent snapshots array. |
+| `get_subagent_messages` | **200** / **400** / **404** / **500** | Paged transcript reading. 400 for path escape or bad `fromByte`. 404 for missing file. 500 for unexpected I/O. |
+| `list_subagent_history` / `GET /api/sessions/[id]/subagents` | **200** / **404** | Metadata rows for cold history. 404 if parent session missing. Empty array if artifacts missing. |
+
+### Task Tool Preset & Panel
+- **Tool Enablement**: Presets match OhMyPi: `none` = no tools; `default` = unrestricted OMP session (same as CLI without `--tools`); `full` = all OMP built-in names. Non-empty allow-lists always retain `"task"` so subagents can be spawned.
+- **Message Card**: Rendered in `MessageView` when toolName is `"task"`, showing description and execution status.
+- **Card/Panel Correlation**: Task card passes `toolCallId` plus task-result details (`sessionFile` / `results[].id` agent ids). Panel focus matches live by `parentToolCallId`, else cold/history by `sessionFile` or `agentId`, then first row.
+- **Chinese UI Translation**: Panel and cards use: `子代理`, `进度`, `进行中`, `已完成`, `失败`, `已中止`, `打开对话` (task card button), `历史` (panel section + chrome toggle). Cold history loads via `GET /api/sessions/[id]/subagents` on panel open / SSE connect and merges with live snapshots by `sessionFile`/`agentId`; transcript open prefers `sessionFile` for cold rows.

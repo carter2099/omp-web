@@ -10,6 +10,7 @@ import {
 	resolveModelRoleValue,
 } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 
+import { fetchAiWayModels, mergeAiWayIntoConfig } from "@/lib/aiway-sync";
 import { invalidateModelsCache, type ModelsData } from "@/lib/models-cache";
 import { disposeOmpRuntime, getOmpRuntime, type OmpRuntime } from "@/lib/omp-runtime";
 import { redactSecrets } from "@/lib/redact-secrets";
@@ -288,5 +289,63 @@ export function parseModelTestBody(body: unknown): ModelTestRequest | { error: s
 		providerName,
 		provider: body.provider,
 		model: { ...body.model, id: modelId },
+	};
+}
+
+export type SyncAiWayRequest = {
+	readonly providerName?: string;
+	readonly baseUrl: string;
+	readonly apiKey?: string;
+};
+
+export type SyncAiWayResult = {
+	readonly providerName: string;
+	readonly modelCount: number;
+	readonly byApi: Record<string, number>;
+	readonly skipped: number;
+};
+
+export async function syncAiWayProvider(
+	runtime: OmpRuntime,
+	request: SyncAiWayRequest,
+): Promise<SyncAiWayResult> {
+	const providerName =
+		typeof request.providerName === "string" && request.providerName.trim() !== ""
+			? request.providerName.trim()
+			: "aiway";
+	const baseUrl = request.baseUrl.trim();
+	if (!baseUrl) {
+		throw new ModelsConfigWriteError("baseUrl is required");
+	}
+
+	const existing = readModelsConfig(runtime.agentDir);
+	const existingProvider = existing.providers?.[providerName];
+	const existingKey =
+		isRecord(existingProvider) && typeof existingProvider.apiKey === "string"
+			? existingProvider.apiKey
+			: "";
+	const apiKey =
+		typeof request.apiKey === "string" && request.apiKey.trim() !== ""
+			? request.apiKey.trim()
+			: existingKey;
+	if (!apiKey) {
+		throw new ModelsConfigWriteError("apiKey is required (none provided and none stored)");
+	}
+
+	const fetched = await fetchAiWayModels(baseUrl, apiKey);
+	const merged = mergeAiWayIntoConfig(
+		existing,
+		providerName,
+		baseUrl,
+		apiKey,
+		fetched.models,
+	);
+	await saveModelsConfig(runtime, merged);
+
+	return {
+		providerName,
+		modelCount: fetched.models.length,
+		byApi: fetched.byApi,
+		skipped: fetched.skipped,
 	};
 }
