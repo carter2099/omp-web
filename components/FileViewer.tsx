@@ -22,6 +22,7 @@ import { resolveLocalFileHref } from "@/lib/file-links";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins } from "@/lib/markdown";
 import { parseUnifiedPatch } from "@/lib/patch";
 import type { GitFileDiffResponse } from "@/lib/git-types";
+import { useTranslations } from "next-intl";
 
 interface Props {
   filePath: string;
@@ -39,11 +40,6 @@ interface FileData {
 
 type DisplayMode = "source" | "preview" | "diff";
 
-const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
-  source: "Source",
-  preview: "Preview",
-  diff: "Diff",
-};
 
 const FILE_CODE_STYLE: CSSProperties = {
   fontFamily: "var(--font-mono)",
@@ -130,13 +126,13 @@ function getFileApiUrl(
   return `/api/files/${encoded}?${searchParams.toString()}`;
 }
 
-function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceSessionId?: string | null }) {
+function DownloadLink({ filePath, sourceSessionId, t }: { filePath: string; sourceSessionId?: string | null; t?: (key: string, values?: Record<string, any>) => string }) {
   return (
     <a
       href={getFileApiUrl(filePath, "download", sourceSessionId)}
       download={getFileName(filePath)}
-      title="Download file"
-      aria-label="Download file"
+      title={t ? t("downloadFile") : "Download file"}
+      aria-label={t ? t("downloadFile") : "Download file"}
       className="file-viewer-icon-button"
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -197,14 +193,14 @@ function diffLines(patch: string): DiffLine[] {
   }));
 }
 
-function DiffView({ patch }: { patch: string }) {
+function DiffView({ patch, t }: { patch: string; t: (key: string, values?: Record<string, any>) => string }) {
   const diff = diffLines(patch);
 
   const hasChanges = diff.some((l) => l.type !== "unchanged");
   if (!hasChanges) {
     return (
       <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        No changes
+        {t("noChanges")}
       </div>
     );
   }
@@ -262,7 +258,7 @@ function DiffView({ patch }: { patch: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              … {seg.count} unchanged lines …
+              {t("nLinesUnchanged", { count: seg.count })}
             </div>
           );
           return result;
@@ -338,6 +334,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const t = useTranslations("fileViewer");
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
 
@@ -395,11 +392,11 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "Image"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext || t("image")}</span>
         {naturalSize && <span>{naturalSize.w} × {naturalSize.h}</span>}
         {formatSizeStr && <span>{formatSizeStr}</span>}
         <span
-          title={watching ? "Live sync enabled" : "Not watching"}
+          title={watching ? t("liveSyncEnabled") : t("notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -412,9 +409,9 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "Live" : "Static"}
+          {watching ? t("live") : t("static")}
         </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} t={t} />
       </div>
       <div
         style={{
@@ -442,7 +439,7 @@ function ImageViewer({ filePath, cwd, sourceSessionId }: Props) {
               const img = e.currentTarget;
               setNaturalSize({ w: img.naturalWidth, h: img.naturalHeight });
             }}
-            onError={() => setError("Failed to load image")}
+            onError={() => setError(t("imageLoadFailed"))}
             style={{
               maxWidth: "100%",
               maxHeight: "100%",
@@ -471,6 +468,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [duration, setDuration] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const t = useTranslations("fileViewer");
 
   const ext = getFileName(filePath).toLowerCase().split(".").pop() ?? "";
 
@@ -528,11 +526,11 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext || "Audio"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext || t("audio")}</span>
         {duration != null && <span>{formatDuration(duration)}</span>}
         {size != null && <span>{formatSize(size)}</span>}
         <span
-          title={watching ? "Live sync enabled" : "Not watching"}
+          title={watching ? t("liveSyncEnabled") : t("notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)" }}
         >
           <span
@@ -545,9 +543,9 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "Live" : "Static"}
+          {watching ? t("live") : t("static")}
         </span>
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} t={t} />
       </div>
       <div
         style={{
@@ -571,7 +569,7 @@ function AudioViewer({ filePath, cwd, sourceSessionId }: Props) {
             preload="metadata"
             src={src}
             onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-            onError={() => setError("Failed to load audio")}
+            onError={() => setError(t("audioLoadFailed"))}
             style={{ width: "100%" }}
           />
         </div>
@@ -586,6 +584,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
   const [size, setSize] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const t = useTranslations("fileViewer");
 
   const ext = getFileExt(filePath);
   const isPdf = ext === "pdf";
@@ -611,7 +610,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX file too large to preview (>10MB)");
+            setError(t("docxTooLarge"));
           }
         }
       })
@@ -627,7 +626,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         if (typeof d.size === "number") {
           setSize(d.size);
           if (!isPdf && d.size > DOCX_PREVIEW_MAX_BYTES) {
-            setError("DOCX file too large to preview (>10MB)");
+            setError(t("docxTooLarge"));
             return;
           }
         }
@@ -662,11 +661,11 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
         <span style={{ fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={filePath}>
           {getRelativeFilePath(filePath, cwd)}
         </span>
-        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? "docx preview" : "pdf"}</span>
+        <span style={{ marginLeft: "auto" }}>{ext === "docx" ? t("docxPreview") : t("pdf")}</span>
         {size != null && <span>{formatSize(size)}</span>}
-        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+        <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} t={t} />
         <span
-          title={watching ? "Live sync enabled" : "Not watching"}
+          title={watching ? t("liveSyncEnabled") : t("notWatching")}
           style={{ display: "flex", alignItems: "center", gap: 4, color: watching ? "#4ade80" : "var(--text-dim)", flexShrink: 0 }}
         >
           <span
@@ -679,7 +678,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
               boxShadow: watching ? "0 0 4px #4ade80" : "none",
             }}
           />
-          {watching ? "Live" : "Static"}
+          {watching ? t("live") : t("static")}
         </span>
       </div>
       <div style={{ flex: 1, minHeight: 0, background: "var(--bg-panel)" }}>
@@ -692,7 +691,7 @@ function DocumentViewer({ filePath, cwd, sourceSessionId }: Props) {
             key={previewUrl}
             src={previewUrl}
             sandbox={isPdf ? undefined : ""}
-            title={`Preview ${getFileName(filePath)}`}
+            title={t("previewFile", { name: getFileName(filePath) })}
             style={{ width: "100%", height: "100%", border: "none", background: isPdf ? "var(--bg)" : "#eef1f5" }}
           />
         )}
@@ -716,6 +715,13 @@ export function FileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefr
 
 function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefreshKey }: Props) {
   const { isDark } = useTheme();
+  const t = useTranslations("fileViewer");
+
+  const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
+    source: t("source"),
+    preview: t("preview"),
+    diff: t("diff"),
+  };
   const [data, setData] = useState<FileData | null>(null);
   const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -821,7 +827,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
   if (loading) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-        Loading…
+        {t("loading")}
       </div>
     );
   }
@@ -846,7 +852,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
     ...(hasPreview ? ["preview" as const] : []),
     ...(hasGitDiff ? ["diff" as const] : []),
   ];
-  const metadata = `${data.language} · ${lines.length} lines · ${formatSize(data.size)}`;
+  const metadata = `${data.language} \u00b7 ${t("nLines", { count: lines.length })} \u00b7 ${formatSize(data.size)}`;
 
   return (
     <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -870,8 +876,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
         <span
-          title={watching ? "Live sync enabled" : "Not watching"}
-          aria-label={watching ? "Live sync enabled" : "Not watching"}
+          title={watching ? t("liveSyncEnabled") : t("notWatching")}
+          aria-label={watching ? t("liveSyncEnabled") : t("notWatching")}
           className="file-viewer-live-indicator"
           style={{
             background: watching ? "#4ade80" : "var(--border)",
@@ -881,7 +887,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
 
         <div className="file-viewer-controls">
           {displayModes.length > 1 && (
-            <div className="file-viewer-mode-switch" aria-label="File view mode">
+            <div className="file-viewer-mode-switch" aria-label={t("modeSwitch")}>
               {displayModes.map((mode) => {
                 const active = displayMode === mode;
                 return (
@@ -889,7 +895,7 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
                     key={mode}
                     type="button"
                     onClick={() => setDisplayMode(mode)}
-                    title={mode === "diff" ? "Compare working tree to HEAD" : undefined}
+                    title={mode === "diff" ? t("diffWithHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
                     style={{
@@ -909,8 +915,8 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
               <button
                 type="button"
                 onClick={() => setWrapLines((value) => !value)}
-                title={wrapLines ? "Disable word wrap" : "Enable word wrap"}
-                aria-label={wrapLines ? "Disable word wrap" : "Enable word wrap"}
+                title={wrapLines ? t("disableWrap") : t("enableWrap")}
+                aria-label={wrapLines ? t("disableWrap") : t("enableWrap")}
                 aria-pressed={wrapLines}
                 className="file-viewer-icon-button"
                 style={{
@@ -928,20 +934,20 @@ function TextFileViewer({ filePath, cwd, sourceSessionId, onOpenFile, gitRefresh
             )}
           </div>
 
-          <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
+          <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} t={t} />
         </div>
       </div>
 
       {/* Content area */}
       <div className="file-viewer-content" style={{ flex: 1, overflow: "auto", background: "var(--bg)" }}>
         {displayMode === "diff" && hasGitDiff ? (
-          <DiffView patch={gitDiff.patch!} />
+          <DiffView patch={gitDiff.patch!} t={t} />
         ) : isHtml && displayMode === "preview" ? (
           <iframe
             srcDoc={data.content}
             sandbox="allow-scripts"
             style={{ width: "100%", height: "100%", border: "none", background: "var(--bg)" }}
-            title="HTML Preview"
+            title={t("htmlPreview")}
           />
         ) : isMarkdown && displayMode === "preview" ? (
           <div

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useTranslations } from "next-intl";
 import type { SessionEntry, SessionTreeNode } from "@/lib/types";
 
 interface Props {
@@ -51,7 +52,7 @@ function compress(node: SessionTreeNode): { node: SessionTreeNode; skipped: numb
   return { node: current, skipped };
 }
 
-function getLabel(entry: SessionEntry): string {
+function getLabel(entry: SessionEntry, t?: (key: string) => string): string {
   if (entry.type === "message" && "message" in entry) {
     const msg = entry.message as { role: string; content: unknown };
     const content = msg.content;
@@ -66,7 +67,7 @@ function getLabel(entry: SessionEntry): string {
     }
     if (text.length > 40) text = text.slice(0, 40) + "…";
     if (text) return text;
-    if (msg.role === "assistant") return "[assistant]";
+    if (msg.role === "assistant") return t ? t("assistantLabel") : "[Assistant]";
   }
   return entry.type;
 }
@@ -87,13 +88,13 @@ interface TreeNodeProps {
   isLast: boolean;
   parentLines: boolean[]; // whether ancestor at each depth has more siblings after
   onSelect: (id: string) => void;
+  t: (key: string) => string;
 }
-
-function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelect }: TreeNodeProps) {
+function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelect, t }: TreeNodeProps) {
   const { node: rep, skipped } = compress(node);
   const isActive = activePathIds.has(rep.entry.id);
   const isOnPath = activePathIds.has(node.entry.id) || activePathIds.has(rep.entry.id);
-  const label = getLabel(rep.entry);
+  const label = getLabel(rep.entry, t);
   const role = rep.entry.type === "message" && "message" in rep.entry
     ? (rep.entry.message as { role: string }).role
     : null;
@@ -210,6 +211,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
           isLast={idx === rep.children.length - 1}
           parentLines={[...parentLines, !isLast]}
           onSelect={onSelect}
+          t={t}
         />
       ))}
     </div>
@@ -218,6 +220,7 @@ function TreeNodeView({ node, activePathIds, depth, isLast, parentLines, onSelec
 
 export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, containerRef, open: openProp, onToggle, hasSession, compact }: Props) {
   const [openInternal, setOpenInternal] = useState(false);
+  const t = useTranslations("branches");
   const open = openProp !== undefined ? openProp : openInternal;
   const btnRef = useRef<HTMLButtonElement>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -246,9 +249,9 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
   }, [onLeafChange]);
 
   const noBranchReason = !hasSession
-    ? "No active session"
+    ? t("noActiveSession")
     : !hasBranch(tree)
-      ? "This session has no branches"
+      ? t("noBranches")
       : null;
 
   // Find first meaningful node (skip pure linear prefix)
@@ -296,12 +299,12 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = open ? "var(--text)" : "var(--text-muted)"; }}
-          title="Branch"
-          aria-label="Branch"
+          title={t("label")}
+          aria-label={t("label")}
           aria-pressed={open}
         >
           {branchIcon}
-          {!compact && <span>Branch</span>}
+          {!compact && <span>{t("label")}</span>}
         </button>
         {open && dropdownPos && (
           <div style={{
@@ -324,6 +327,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
                     isLast={idx === firstNode.children.length - 1}
                     parentLines={[]}
                     onSelect={handleSelect}
+                    t={t}
                   />
                 ))}
               </div>
@@ -358,7 +362,7 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
         }}
       >
         {branchIcon}
-        <span style={{ color: "var(--text-muted)" }}>Branch</span>
+        <span style={{ color: "var(--text-muted)" }}>{t("label")}</span>
         {chevron}
       </button>
 
@@ -385,12 +389,13 @@ export function BranchNavigator({ tree, activeLeafId, onLeafChange, inline, cont
                   isLast={idx === firstNode.children.length - 1}
                   parentLines={[]}
                   onSelect={handleSelect}
+                  t={t}
                 />
               ))}
             </div>
           ) : (
             <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {noBranchReason ?? "This session has no branches"}
+              {noBranchReason ?? t("noBranches")}
             </div>
           )}
         </div>

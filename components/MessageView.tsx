@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useMemo } from "react";
+import { useTranslations } from "next-intl";
 import { MarkdownBody } from "./MarkdownBody";
 import { copyText } from "@/lib/clipboard";
 import { parseCompactionSummary } from "@/lib/compaction-summary";
@@ -37,7 +38,7 @@ function loadThinkingContent(sessionId: string, entryId: string, blockIndex: num
   ).then(async (response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json() as { thinking?: unknown };
-    if (typeof data.thinking !== "string") throw new Error("Invalid thinking response");
+    if (typeof data.thinking !== "string") throw new Error("Invalid thinking content response");
     return data.thinking;
   }).catch((error) => {
     thinkingContentCache.delete(key);
@@ -77,9 +78,9 @@ function formatTime(ts?: number): string | null {
   const isToday = d.getFullYear() === now.getFullYear() &&
     d.getMonth() === now.getMonth() &&
     d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const time = d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   if (isToday) return time;
-  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
+  const date = d.toLocaleDateString("zh-CN", { month: "short", day: "numeric", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined });
   return `${date} ${time}`;
 }
 
@@ -98,11 +99,12 @@ function haveSameRelevantToolResults(
 }
 
 export const MessageView = memo(function MessageView({ message, isStreaming, toolResults, modelNames, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent, showTimestamp, prevTimestamp, sessionId }: Props) {
+  const t = useTranslations("messageView");
   if (message.role === "user") {
-    return <UserMessageView message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
+    return <UserMessageView t={t} message={message as UserMessage} cwd={cwd} onOpenFile={onOpenFile} entryId={entryId} onFork={onFork} forking={forking} onNavigate={onNavigate} prevAssistantEntryId={prevAssistantEntryId} onEditContent={onEditContent} />;
   }
   if (message.role === "assistant") {
-    return <AssistantMessageView message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
+    return <AssistantMessageView t={t} message={message as AssistantMessage} isStreaming={isStreaming} toolResults={toolResults} modelNames={modelNames} cwd={cwd} onOpenFile={onOpenFile} showTimestamp={showTimestamp} prevTimestamp={prevTimestamp} sessionId={sessionId} entryId={entryId} />;
   }
   if (message.role === "toolResult") {
     // Rendered inline under its toolCall — skip standalone rendering if paired
@@ -110,12 +112,12 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
   }
   if (message.role === "custom") {
     if ((message as CustomMessage).customType === "compaction") {
-      return <CompactionMessageView message={message as CustomMessage} />;
+      return <CompactionMessageView t={t} message={message as CustomMessage} />;
     }
     return <CustomMessageView message={message as CustomMessage} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (message.role === "bashExecution") {
-    return <BashExecutionView message={message as BashExecutionMessage} sessionId={sessionId} />;
+    return <BashExecutionView t={t} message={message as BashExecutionMessage} sessionId={sessionId} />;
   }
   return null;
 }, (prev, next) => {
@@ -136,7 +138,8 @@ export const MessageView = memo(function MessageView({ message, isStreaming, too
     && prev.sessionId === next.sessionId;
 });
 
-function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+function UserMessageView({ t, message, cwd, onOpenFile, entryId, onFork, forking, onNavigate, prevAssistantEntryId, onEditContent }: {
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
   message: UserMessage;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
@@ -239,7 +242,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
           }}>
             <button
               onClick={copyContent}
-              title="Copy message"
+              title={t("copyMessage")}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
                 padding: "3px 8px", height: 22,
@@ -264,7 +267,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>
               )}
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("copied") : t("copy")}
             </button>
           </div>
           {(canFork || canNavigate) && (
@@ -277,7 +280,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
               {canNavigate && (
                 <button
                   onClick={() => { onNavigate!(prevAssistantEntryId!); onEditContent?.(content); }}
-                  title="Edit from here, creating a branch within the current session"
+                  title={t("editFromHere")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
@@ -296,14 +299,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                     <polyline points="15 10 20 15 15 20" />
                     <path d="M4 4v7a4 4 0 0 0 4 4h12" />
                   </svg>
-                  Edit from here
+                  {t("editFromHereLabel")}
                 </button>
               )}
               {canFork && (
                 <button
                   onClick={() => { onFork!(entryId!); }}
                   disabled={forking}
-                  title={forking ? "Creating new session…" : "Fork a new session from this point"}
+                  title={forking ? t("creatingNewSession") : t("forkDescription")}
                   style={{
                     display: "flex", alignItems: "center", gap: 4,
                     padding: "3px 8px", height: 22,
@@ -324,7 +327,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
                     <circle cx="6" cy="18" r="3" />
                     <path d="M18 9a9 9 0 0 1-9 9" />
                   </svg>
-                  {forking ? "Forking…" : "Fork session"}
+                  {forking ? t("creating") : t("newSession")}
                 </button>
               )}
             </div>
@@ -337,6 +340,7 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
 }
 
 function AssistantMessageView({
+  t,
   message,
   isStreaming,
   toolResults,
@@ -348,6 +352,7 @@ function AssistantMessageView({
   sessionId,
   entryId,
 }: {
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
   message: AssistantMessage;
   isStreaming?: boolean;
   toolResults?: Map<string, ToolResultMessage>;
@@ -501,7 +506,7 @@ function AssistantMessageView({
             <>
 
               {est > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title="Estimated token count during streaming">
+                <span style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text)" }} title={t("estimatedTokens")}>
                   <span style={{ display: "flex", alignItems: "center", gap: 2, fontSize: 11, fontWeight: 400 }}>
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="1.5" x2="5" y2="8.5" /><polyline points="2 6 5 8.5 8 6" />
@@ -525,7 +530,7 @@ function AssistantMessageView({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {blockItems.map(({ block, originalIndex }) => (
-          <BlockView key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
+          <BlockView t={t} key={`${entryId ?? "stream"}-${originalIndex}`} block={block} toolResults={toolResults} isStreaming={isStreaming} streamingDuration={streamingDurations.get(originalIndex) ?? (block.type === "thinking" ? thinkingDurationFromFile : undefined)} toolCallDurations={toolCallDurations} cwd={cwd} onOpenFile={onOpenFile} sessionId={sessionId} entryId={entryId} blockIndex={originalIndex} />
         ))}
       </div>
 
@@ -534,13 +539,13 @@ function AssistantMessageView({
       }}>
         {message.usage && !isStreaming && (
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>
-            {formatUsage(message.usage)}
+            {formatUsage(t, message.usage)}
           </div>
         )}
         {textContent && !isStreaming && (
           <button
             onClick={copyContent}
-            title="Copy message"
+            title={t("copyMessage")}
             style={{
               display: "flex", alignItems: "center", gap: 4,
               padding: "3px 8px", height: 22,
@@ -567,7 +572,7 @@ function AssistantMessageView({
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
             )}
-            {copied ? "Copied" : "Copy"}
+            {copied ? t("copied") : t("copy")}
           </button>
         )}
         {time && !isStreaming && (
@@ -578,18 +583,18 @@ function AssistantMessageView({
   );
 }
 
-function BlockView({ block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
+function BlockView({ t, block, toolResults, isStreaming, streamingDuration, toolCallDurations, cwd, onOpenFile, sessionId, entryId, blockIndex }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: AssistantContentBlock; toolResults?: Map<string, ToolResultMessage>; isStreaming?: boolean; streamingDuration?: number; toolCallDurations?: Map<string, number>; cwd?: string; onOpenFile?: (filePath: string) => void; sessionId?: string; entryId?: string; blockIndex: number }) {
   if (block.type === "text") {
     return <TextBlock block={block as TextContent} isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile} />;
   }
   if (block.type === "thinking") {
-    return <ThinkingBlock block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
+    return <ThinkingBlock t={t} block={block as ThinkingContent} duration={streamingDuration} sessionId={sessionId} entryId={entryId} blockIndex={blockIndex} />;
   }
   if (block.type === "toolCall") {
     const tc = block as ToolCallContent;
     const result = toolResults?.get(tc.toolCallId);
     const duration = toolCallDurations?.get(tc.toolCallId);
-    return <ToolCallBlock block={tc} result={result} duration={duration} />;
+    return <ToolCallBlock t={t} block={tc} result={result} duration={duration} />;
   }
   return null;
 }
@@ -598,7 +603,8 @@ function TextBlock({ block, isStreaming, cwd, onOpenFile }: { block: TextContent
   return <MarkdownBody isStreaming={isStreaming} cwd={cwd} onOpenFile={onOpenFile}>{block.text}</MarkdownBody>;
 }
 
-function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
+function ThinkingBlock({ t, block, duration, sessionId, entryId, blockIndex }: {
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
   block: ThinkingContent;
   duration?: number;
   sessionId?: string;
@@ -615,7 +621,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
     setExpanded(nextExpanded);
     if (!nextExpanded || !block.deferred || content !== null) return;
     if (!sessionId || !entryId) {
-      setError("Thinking content unavailable");
+      setError(t("thinkingUnavailable"));
       return;
     }
 
@@ -655,9 +661,9 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
           textAlign: "left",
         }}
       >
-        <span>Thinking</span>
+        <span>{t("thinkingProcess")}</span>
         {duration !== undefined && (
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-dim)", fontVariantNumeric: "tabular-nums" }}>{t("nSeconds", { duration })}</span>
         )}
       </button>
       {expanded && (
@@ -672,7 +678,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
             borderTop: "1px solid var(--border)",
           }}
         >
-          {loading ? "Loading thinking…" : error ?? (block.deferred ? content : block.thinking)}
+          {loading ? t("loadingThinking") : error ?? (block.deferred ? content : block.thinking)}
         </div>
       )}
     </div>
@@ -680,7 +686,7 @@ function ThinkingBlock({ block, duration, sessionId, entryId, blockIndex }: {
 }
 
 
-function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
+function ToolCallBlock({ t, block, result, duration }: { t: (key: string, values?: Record<string, string | number | Date>) => string; block: ToolCallContent; result?: ToolResultMessage; duration?: number }) {
   const [expanded, setExpanded] = useState(false);
   const inputStr = JSON.stringify(block.input, null, 2);
   const isEditTool = isEditToolName(block.toolName);
@@ -728,7 +734,7 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
           {getToolPreview(block)}
         </span>
         {duration !== undefined && (
-          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{duration}s</span>
+          <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{t("nSeconds", { duration })}</span>
         )}
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="var(--text-dim)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
           <polyline points="2 3.5 5 6.5 8 3.5" />
@@ -759,10 +765,12 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
       {expanded && result && (
         resultDiff ? (
           <PairedDiffResult
+            t={t}
             diff={resultDiff}
           />
         ) : (
           <PairedResult
+            t={t}
             text={resultText ?? ""}
             isEmpty={resultIsEmpty}
             isError={isError}
@@ -776,8 +784,8 @@ function ToolCallBlock({ block, result, duration }: { block: ToolCallContent; re
 interface ResultDiff {
   text: string;
 }
-
-function PairedDiffResult({ diff }: {
+function PairedDiffResult({ t, diff }: {
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
   diff: ResultDiff;
 }) {
   return (
@@ -787,12 +795,12 @@ function PairedDiffResult({ diff }: {
         background: "var(--bg)",
       }}
     >
-      <SplitPatchView text={diff.text} />
+      <SplitPatchView t={t} text={diff.text} />
     </div>
   );
 }
 
-function SplitPatchView({ text }: { text: string }) {
+function SplitPatchView({ t, text }: { t: (key: string, values?: Record<string, string | number | Date>) => string; text: string }) {
   const files = useMemo(() => parseUnifiedPatch(text), [text]);
   if (!files) return <PatchTextView text={text} />;
   const showFileHeaders = files.length > 1;
@@ -822,8 +830,8 @@ function SplitPatchView({ text }: { text: string }) {
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              <SplitDiffHeader title={file.oldPath || "Before"} side="left" />
-              <SplitDiffHeader title={file.newPath || "After"} side="right" />
+              <SplitDiffHeader title={file.oldPath || t("before")} side="left" />
+              <SplitDiffHeader title={file.newPath || t("after")} side="right" />
             </div>
           )}
 
@@ -1018,7 +1026,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function PairedResult({ text, isEmpty, isError }: {
+function PairedResult({ t, text, isEmpty, isError }: {
+  t: (key: string, values?: Record<string, string | number | Date>) => string;
   text: string;
   isEmpty: boolean;
   isError: boolean;
@@ -1046,13 +1055,13 @@ function PairedResult({ text, isEmpty, isError }: {
           opacity: isEmpty ? 0.6 : 1,
         }}
       >
-        {isEmpty ? "(no output)" : text}
+        {isEmpty ? t("noOutput") : text}
       </pre>
     </div>
   );
 }
 
-function CompactionMessageView({ message }: { message: CustomMessage }) {
+function CompactionMessageView({ t, message }: { t: (key: string, values?: Record<string, string | number | Date>) => string; message: CustomMessage }) {
   const summary = getMessageText(message.content);
   const parsedSummary = useMemo(() => parseCompactionSummary(summary), [summary]);
   const time = formatTime(message.timestamp);
@@ -1079,43 +1088,43 @@ function CompactionMessageView({ message }: { message: CustomMessage }) {
           }}
         >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
-            Context compaction
+            {t("contextCompaction")}
           </span>
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
         <div style={{ padding: "11px 13px 12px" }}>
           <div style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>
-            Conversation compacted
+            {t("conversationCompacted")}
           </div>
           <div style={{ marginTop: 3, marginBottom: 10, color: "var(--text)", fontSize: 14, lineHeight: 1.5 }}>
-            The conversation history before this point has been compacted into the following summary:
+            {t("conversationSummary")}
           </div>
           {parsedSummary.body ? (
             <MarkdownBody className="markdown-compaction-message">{parsedSummary.body}</MarkdownBody>
           ) : (
-            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no summary)</span>
+            <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("noSummary")}</span>
           )}
-          <CompactionFileMetadata readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
+          <CompactionFileMetadata t={t} readFiles={parsedSummary.readFiles} modifiedFiles={parsedSummary.modifiedFiles} />
         </div>
       </div>
     </div>
   );
 }
 
-function CompactionFileMetadata({ readFiles, modifiedFiles }: { readFiles: string[]; modifiedFiles: string[] }) {
+function CompactionFileMetadata({ t, readFiles, modifiedFiles }: { t: (key: string, values?: Record<string, string | number | Date>) => string; readFiles: string[]; modifiedFiles: string[] }) {
   const total = readFiles.length + modifiedFiles.length;
   if (total === 0) return null;
 
   const parts = [];
-  if (readFiles.length > 0) parts.push(`Read ${readFiles.length} files`);
-  if (modifiedFiles.length > 0) parts.push(`Modified ${modifiedFiles.length} files`);
+  if (readFiles.length > 0) parts.push(t("readN", { count: readFiles.length }));
+  if (modifiedFiles.length > 0) parts.push(t("modifiedN", { count: modifiedFiles.length }));
 
   return (
     <details className="compaction-file-details">
-      <summary>File context: {parts.join(", ")}</summary>
-      {modifiedFiles.length > 0 && <CompactionFileList title="Modified files" files={modifiedFiles} />}
-      {readFiles.length > 0 && <CompactionFileList title="Read files" files={readFiles} />}
+      <summary>{t("fileContext")}: {parts.join(", ")}</summary>
+      {modifiedFiles.length > 0 && <CompactionFileList title={t("modifiedFiles")} files={modifiedFiles} />}
+      {readFiles.length > 0 && <CompactionFileList title={t("readFiles")} files={readFiles} />}
     </details>
   );
 }
@@ -1138,11 +1147,12 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
   const [contentExpanded, setContentExpanded] = useState(!isHiddenDisplay);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const t = useTranslations("messageView");
   const text = getMessageText(message.content);
   const images = getMessageImages(message.content);
   const hasDetails = message.details !== undefined;
   const detailsText = hasDetails ? safeJson(message.details) : "";
-  const title = formatCustomType(message.customType);
+  const title = formatCustomType(t, message.customType);
   const time = formatTime(message.timestamp);
 
   const copyContent = () => {
@@ -1178,7 +1188,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
           <span style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 650 }}>
             {title}
           </span>
-          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>Hidden extension message</span>}
+          {isHiddenDisplay && <span style={{ color: "var(--text-dim)", fontSize: 11 }}>{t("hiddenExtensionMessage")}</span>}
           {time && <span style={{ marginLeft: "auto", color: "var(--text-dim)", fontSize: 10 }}>{time}</span>}
         </div>
 
@@ -1201,7 +1211,7 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 })}
               </div>
             )}
-            {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>(no message)</span>}
+            {text ? <MarkdownBody className="markdown-custom-message" cwd={cwd} onOpenFile={onOpenFile}>{text}</MarkdownBody> : <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{t("noMessage")}</span>}
           </div>
         ) : (
           <button
@@ -1216,9 +1226,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
               cursor: "pointer",
               fontSize: 12,
               textAlign: "left",
-            }}
-          >
-            {text ? previewText(text) : "Show extension message"}
+            }}>
+            {text ? previewText(t, text) : t("showExtensionMessage")}
           </button>
         )}
 
@@ -1242,9 +1251,8 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 color: copied ? "var(--accent)" : "var(--text-dim)",
                 cursor: "pointer",
                 fontSize: 11,
-              }}
-            >
-              {copied ? "Copied" : "Copy"}
+              }}>
+              {copied ? t("copied") : t("copy")}
             </button>
           ) : null}
           {(hasDetails || isHiddenDisplay) && (
@@ -1261,11 +1269,10 @@ function CustomMessageView({ message, cwd, onOpenFile }: { message: CustomMessag
                 color: "var(--text-dim)",
                 cursor: "pointer",
                 fontSize: 11,
-              }}
-            >
+              }}>
               {isHiddenDisplay
-                ? (contentExpanded ? "Collapse" : "Expand")
-                : (detailsExpanded ? "Hide details" : "Show details")}
+                ? (contentExpanded ? t("collapse") : t("expand"))
+                : (detailsExpanded ? t("hideDetails") : t("showDetails"))}
             </button>
           )}
         </div>
@@ -1326,13 +1333,13 @@ function safeJson(value: unknown): string {
   }
 }
 
-function formatCustomType(type: string): string {
-  return type || "Extension";
+function formatCustomType(t: (key: string, values?: Record<string, string | number | Date>) => string, type: string): string {
+  return type || t("extension");
 }
 
-function previewText(text: string): string {
+function previewText(t: (key: string, values?: Record<string, string | number | Date>) => string, text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
-  if (!normalized) return "Show extension message";
+  if (!normalized) return t("showExtensionMessage");
   return normalized.length > 140 ? `${normalized.slice(0, 140)}…` : normalized;
 }
 
@@ -1354,7 +1361,7 @@ function getToolPreview(block: ToolCallContent): string {
   return String(first).slice(0, 120);
 }
 
-function formatUsage(usage: {
+function formatUsage(t: (key: string, values?: Record<string, string | number | Date>) => string, usage: {
   input: number;
   output: number;
   cacheRead: number;
@@ -1362,14 +1369,14 @@ function formatUsage(usage: {
   cost: { total: number };
 }): string {
   const parts = [];
-  if (usage.input) parts.push(`Input ${usage.input.toLocaleString()}`);
-  if (usage.output) parts.push(`Output ${usage.output.toLocaleString()}`);
-  if (usage.cacheRead) parts.push(`Cache ${usage.cacheRead.toLocaleString()}`);
+  if (usage.input) parts.push(t("inputCount", { count: usage.input.toLocaleString() }));
+  if (usage.output) parts.push(t("outputCount", { count: usage.output.toLocaleString() }));
+  if (usage.cacheRead) parts.push(t("cacheCount", { count: usage.cacheRead.toLocaleString() }));
   if (usage.cost?.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
   return parts.join(" · ");
 }
 
-function BashExecutionView({ message, sessionId }: { message: BashExecutionMessage; sessionId?: string }) {
+function BashExecutionView({ t, message, sessionId }: { t: (key: string, values?: Record<string, string | number | Date>) => string; message: BashExecutionMessage; sessionId?: string }) {
   const [fullOutput, setFullOutput] = useState<string | null>(null);
   const [loadingFull, setLoadingFull] = useState(false);
   const [fullError, setFullError] = useState<string | null>(null);
@@ -1392,7 +1399,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
       if (d.success) {
         setFullOutput(d.data?.output ?? "");
       } else {
-        setFullError(d.error ?? "Failed");
+        setFullError(d.error ?? t("failed"));
       }
     } catch (e) {
       setFullError(String(e));
@@ -1404,7 +1411,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
   // Reuse the existing ToolCallBlock so user-run bash looks identical to an
   // agent-run bash tool call: same header, collapse behavior, result pane.
   // Synthesize an equivalent ToolCallContent + ToolResultMessage pair.
-  const toolName = message.excludeFromContext ? "bash (local)" : "bash";
+  const toolName = message.excludeFromContext ? t("bashLocal") : "bash";
   const block: ToolCallContent = {
     type: "toolCall",
     toolCallId: `bash-${message.timestamp ?? ""}`,
@@ -1424,7 +1431,7 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
 
   return (
     <div style={{ margin: "6px 0" }}>
-      <ToolCallBlock block={block} result={result} />
+      <ToolCallBlock t={t} block={block} result={result} />
       {message.truncated && fullOutputUrl && (
         <div style={{ padding: "4px 10px", fontSize: 11, marginTop: -1 }}>
           {showFullButton && (
@@ -1433,14 +1440,14 @@ function BashExecutionView({ message, sessionId }: { message: BashExecutionMessa
               disabled={loadingFull}
               style={{ background: "none", border: "none", color: "var(--accent)", cursor: loadingFull ? "default" : "pointer", fontSize: 11, padding: 0, textDecoration: "underline" }}
             >
-              {loadingFull ? "Loading…" : "View full output"}
+              {loadingFull ? t("loadingFull") : t("viewFullOutput")}
             </button>
           )}
           <a
             href={`${fullOutputUrl}&download=1`}
             style={{ marginLeft: showFullButton ? 10 : 0, color: "var(--accent)", fontSize: 11, textDecoration: "underline" }}
           >
-            Download full output
+            {t("downloadFullOutput")}
           </a>
           {fullError && <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 11 }}>({fullError})</span>}
         </div>
