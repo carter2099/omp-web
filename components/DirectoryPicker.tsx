@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useTranslations } from "next-intl";
 
 type BrowseEntry = { name: string; path: string };
 
@@ -62,6 +63,7 @@ export function DirectoryPicker({
   onSelect,
   onCancel,
 }: Props) {
+  const t = useTranslations("directoryPicker");
   const [currentPath, setCurrentPath] = useState(initialPath ?? "");
   const [parent, setParent] = useState<string | null>(null);
   const [home, setHome] = useState("");
@@ -122,7 +124,7 @@ export function DirectoryPicker({
           letterSpacing: "0.02em",
         }}
       >
-        浏览目录
+        {t("browse")}
       </div>
 
       {/* Current path + up */}
@@ -136,7 +138,7 @@ export function DirectoryPicker({
       >
         <button
           type="button"
-          title="上级目录"
+          title={t("parentDir")}
           disabled={!parent || loading || selecting}
           onClick={() => parent && void load(parent)}
           style={{
@@ -155,7 +157,7 @@ export function DirectoryPicker({
         {home && (
           <button
             type="button"
-            title="主目录"
+            title={t("homeDir")}
             disabled={loading || selecting || currentPath === home}
             onClick={() => void load(home)}
             style={{
@@ -210,12 +212,12 @@ export function DirectoryPicker({
       >
         {loading && (
           <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
-            加载中…
+            {t("loading")}
           </div>
         )}
         {!loading && entries.length === 0 && (
           <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
-            此目录下没有子文件夹
+            {t("noSubdirs")}
           </div>
         )}
         {!loading &&
@@ -285,7 +287,7 @@ export function DirectoryPicker({
             opacity: selecting || !currentPath || loading ? 0.65 : 1,
           }}
         >
-          {selecting ? "正在打开…" : "选择此目录"}
+          {selecting ? t("opening") : t("selectDir")}
         </button>
         <button
           type="button"
@@ -302,7 +304,7 @@ export function DirectoryPicker({
             cursor: selecting ? "not-allowed" : "pointer",
           }}
         >
-          取消
+          {t("cancel")}
         </button>
       </div>
 
@@ -321,7 +323,7 @@ export function DirectoryPicker({
           textUnderlineOffset: 2,
         }}
       >
-        {manualOpen ? "收起手动输入" : "手动输入路径…"}
+        {manualOpen ? t("hideManual") : t("enterPath")}
       </button>
       {manualOpen && (
         <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
@@ -366,7 +368,7 @@ export function DirectoryPicker({
               flexShrink: 0,
             }}
           >
-            跳转
+            {t("go")}
           </button>
         </div>
       )}

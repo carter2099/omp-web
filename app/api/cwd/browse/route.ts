@@ -49,13 +49,13 @@ export async function GET(req: NextRequest) {
       stat = statSync(path);
     } catch {
       return NextResponse.json(
-        { error: `目录不存在：${raw}` },
+        { error: `Directory not found: ${raw}` },
         { status: 404 },
       );
     }
     if (!stat.isDirectory()) {
       return NextResponse.json(
-        { error: `路径不是目录：${raw}` },
+        { error: `Path is not a directory: ${raw}` },
         { status: 400 },
       );
     }
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
       names = readdirSync(path);
     } catch {
       return NextResponse.json(
-        { error: `无法读取目录：${path}` },
+        { error: `Cannot read directory: ${path}` },
         { status: 403 },
       );
     }

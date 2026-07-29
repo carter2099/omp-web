@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useTranslations } from "next-intl";
 import type { RpcSubagentSnapshot, SubagentMessagesPage } from "@/lib/subagent-types";
 import { isLiveSubagentStatus } from "@/lib/subagent-live";
 import {
@@ -25,15 +26,15 @@ function statusLabel(status: string): string {
   switch (status) {
     case "pending":
     case "running":
-      return "进行中";
+      return "Running";
     case "completed":
-      return "已完成";
+      return "Completed";
     case "failed":
-      return "失败";
+      return "Failed";
     case "aborted":
-      return "已中止";
+      return "Aborted";
     default:
-      return "未知";
+      return "Unknown";
   }
 }
 
@@ -123,7 +124,7 @@ function SubagentListRow({
               color: "var(--accent)",
               flexShrink: 0,
             }}
-            title={snapshot.agentSource ? `来源: ${snapshot.agentSource}` : undefined}
+            title={snapshot.agentSource ? `Source: ${snapshot.agentSource}` : undefined}
           >
             {typeLabel}
           </span>
@@ -156,7 +157,7 @@ function SubagentListRow({
           whiteSpace: "nowrap",
         }}
       >
-        {snapshot.description || snapshot.task || "无描述"}
+        {snapshot.description || snapshot.task || "No description"}
       </div>
     </div>
   );
@@ -249,6 +250,7 @@ export function SubagentPanel({
   fetchColdHistory,
   onClose,
 }: SubagentPanelProps) {
+  const t = useTranslations('subagentPanel');
   const [rawTranscript, setRawTranscript] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
@@ -352,7 +354,7 @@ export function SubagentPanel({
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 700 }}>子代理</span>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{t('subAgents')}</span>
         <button
           type="button"
           onClick={onClose}
@@ -392,7 +394,7 @@ export function SubagentPanel({
                       border: "1px solid var(--border)",
                       color: "var(--accent)",
                     }}
-                    title={selected.agentSource ? `来源: ${selected.agentSource}` : "代理类型"}
+                    title={selected.agentSource ? `Source: ${selected.agentSource}` : t('agentType')}
                   >
                     {agentTypeBadge(selected.agent)}
                   </span>
@@ -428,21 +430,21 @@ export function SubagentPanel({
                 </span>
               </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
-                {selected.description || selected.task || "无描述"}
+                {selected.description || selected.task || t('noDescription')}
               </div>
               {selected.progress && (
                 <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-dim)" }}>
-                    <span>进度</span>
+                    <span>{t('progress')}</span>
                     <span>
                       {selected.progress.recentTools && selected.progress.recentTools.length > 0
-                        ? `${selected.progress.recentTools.length} 次工具调用`
+                        ? `${selected.progress.recentTools.length} ${t('toolCalls')}`
                         : ""}
                     </span>
                   </div>
                   {selected.progress.requests !== undefined && (
                     <div style={{ fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
-                      请求数: {selected.progress.requests} | 工具调用: {selected.progress.toolCount}
+                      {t('requestsAndToolCalls', { requests: selected.progress.requests, toolCount: selected.progress.toolCount })}
                     </div>
                   )}
                 </div>
@@ -462,7 +464,7 @@ export function SubagentPanel({
                   cursor: "pointer",
                 }}
               >
-                返回列表
+                {t('backToList')}
               </button>
             </div>
 
@@ -476,14 +478,14 @@ export function SubagentPanel({
               }}
             >
               {loading && turns.length === 0 && (
-                <div style={{ color: "var(--text-dim)", textAlign: "center", padding: 16 }}>加载中…</div>
+                <div style={{ color: "var(--text-dim)", textAlign: "center", padding: 16 }}>{t('loading')}</div>
               )}
               {error && (
                 <div style={{ color: "#ef4444", textAlign: "center", padding: 8 }}>{error}</div>
               )}
               {!loading && !error && turns.length === 0 && (
                 <div style={{ color: "var(--text-dim)", textAlign: "center", padding: 16 }}>
-                  无对话记录
+                  {t('noConversationRecords')}
                 </div>
               )}
               {turns.map((turn) => (
@@ -506,7 +508,7 @@ export function SubagentPanel({
                     cursor: "pointer",
                   }}
                 >
-                  {loading ? "加载中…" : "加载更多"}
+                  {loading ? t('loading') : t('loadMore')}
                 </button>
               )}
             </div>
@@ -515,7 +517,7 @@ export function SubagentPanel({
           <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
             {active.length === 0 && history.length === 0 ? (
               <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--text-dim)", textAlign: "center" }}>
-                {historyLoading ? "加载历史…" : "暂无子代理"}
+                {historyLoading ? t('loadingHistory') : t('noSubAgents')}
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -530,7 +532,7 @@ export function SubagentPanel({
                         letterSpacing: 0.3,
                       }}
                     >
-                      进行中
+                      {t('running')}
                     </div>
                     {active.map((s) => (
                       <SubagentListRow key={s.id} snapshot={s} onSelect={onSelectSubagent} />
@@ -555,15 +557,15 @@ export function SubagentPanel({
                         letterSpacing: 0.3,
                       }}
                     >
-                      历史
+                      {t('history')}
                     </span>
                     {historyLoading && (
-                      <span style={{ fontSize: 10, color: "var(--text-dim)" }}>加载中…</span>
+                      <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{t('loading')}</span>
                     )}
                   </div>
                   {history.length === 0 ? (
                     <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
-                      暂无历史记录
+                      {t('noHistory')}
                     </div>
                   ) : (
                     history.map((s) => (

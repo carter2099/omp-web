@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type {
   McpServerInfo,
@@ -88,15 +89,16 @@ function Toggle({
 }
 
 function ScopeTag({ scope }: { scope: "user" | "project" | "external" }) {
-  let label = "外部";
+  const t = useTranslations("mcpConfig");
+  let label = t("scopeExternal");
   let bg = "rgba(120,120,120,0.12)";
   let color = "var(--text-dim)";
   if (scope === "project") {
-    label = "项目";
+    label = t("scopeProject");
     bg = "rgba(99,102,241,0.12)";
     color = "rgba(99,102,241,0.85)";
   } else if (scope === "user") {
-    label = "全局";
+    label = t("scopeUser");
     bg = "rgba(16,185,129,0.12)";
     color = "rgba(16,185,129,0.85)";
   }
@@ -117,25 +119,26 @@ function ScopeTag({ scope }: { scope: "user" | "project" | "external" }) {
 }
 
 function StatusTags({ server }: { server: McpServerInfo }) {
+  const t = useTranslations("mcpConfig");
   return (
     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
       {server.configuredEnabled ? (
         <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: "rgba(16,185,129,0.12)", color: "#10b981" }}>
-          已启用
+          {t("enabled")}
         </span>
       ) : (
         <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: "rgba(239,68,68,0.12)", color: "#ef4444" }}>
-          已禁用
+          {t("disabled")}
         </span>
       )}
       
       {server.effectiveForRuntime ? (
         <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: "rgba(16,185,129,0.12)", color: "#10b981" }}>
-          运行时生效
+          {t("runtimeActive")}
         </span>
       ) : server.shadowed ? (
         <span style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: "rgba(245,158,11,0.12)", color: "#d97706" }}>
-          被遮蔽
+          {t("shadowed")}
         </span>
       ) : null}
     </div>
@@ -143,33 +146,34 @@ function StatusTags({ server }: { server: McpServerInfo }) {
 }
 
 function ProbeDetail({ result }: { result: McpProbeResult }) {
+  const t = useTranslations("mcpConfig");
   const statusColor = result.status === "ok" ? "#10b981" : "#ef4444";
   const statusLabel = {
-    ok: "成功",
-    fail: "失败",
-    timeout: "超时",
-    fail_clean: "干净失败",
+    ok: t("probeOk"),
+    fail: t("probeFail"),
+    timeout: t("probeTimeout"),
+    fail_clean: t("probeFailClean"),
   }[result.status] || result.status;
 
   return (
     <div style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 6, padding: 12, background: "var(--bg-panel)" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
-        最后测试结果 (测试连接)
+        {t("lastTestResult")}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", gap: "6px 12px", fontSize: 12 }}>
-        <div style={{ color: "var(--text-dim)" }}>状态</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("probeStatus")}</div>
         <div style={{ color: statusColor, fontWeight: 600 }}>{statusLabel}</div>
         
         {result.toolCount !== undefined && (
           <>
-            <div style={{ color: "var(--text-dim)" }}>工具数量</div>
+            <div style={{ color: "var(--text-dim)" }}>{t("toolCount")}</div>
             <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>{result.toolCount}</div>
           </>
         )}
         
         {result.tools && result.tools.length > 0 && (
           <>
-            <div style={{ color: "var(--text-dim)" }}>提供工具</div>
+            <div style={{ color: "var(--text-dim)" }}>{t("providedTools")}</div>
             <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: 11, wordBreak: "break-all" }}>
               {result.tools.join(", ")}
             </div>
@@ -178,14 +182,14 @@ function ProbeDetail({ result }: { result: McpProbeResult }) {
 
         {result.error && (
           <>
-            <div style={{ color: "var(--text-dim)" }}>错误信息</div>
+            <div style={{ color: "var(--text-dim)" }}>{t("probeError")}</div>
             <div style={{ color: "#ef4444", fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "pre-wrap", gridColumn: "1 / -1", marginTop: 4, background: "rgba(239,68,68,0.04)", padding: 8, borderRadius: 4, border: "1px dashed rgba(239,68,68,0.2)" }}>
               {result.error}
             </div>
           </>
         )}
         
-        <div style={{ color: "var(--text-dim)" }}>耗时</div>
+        <div style={{ color: "var(--text-dim)" }}>{t("duration")}</div>
         <div style={{ color: "var(--text-muted)" }}>{result.durationMs} ms</div>
       </div>
     </div>
@@ -199,6 +203,7 @@ function SegmentedScope({
   value: "user" | "project";
   onChange: (scope: "user" | "project") => void;
 }) {
+  const t = useTranslations("mcpConfig");
   return (
     <div
       style={{
@@ -226,7 +231,7 @@ function SegmentedScope({
               fontSize: 12,
             }}
           >
-            {scope === "user" ? "全局" : "项目"}
+            {scope === "user" ? t("global") : t("project")}
           </button>
         );
       })}
@@ -283,6 +288,7 @@ export function McpConfig({
   cwd: string;
   onClose: () => void;
 }) {
+  const t = useTranslations("mcpConfig");
   const isMobile = useIsMobile();
   const [data, setData] = useState<McpListResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,16 +316,16 @@ export function McpConfig({
 
   const groupedServers = useMemo(() => {
     return ([
-      { scope: "project", label: "项目" },
-      { scope: "user", label: "全局" },
-      { scope: "external", label: "外部" },
+      { scope: "project", label: t("scopeProject") },
+      { scope: "user", label: t("scopeUser") },
+      { scope: "external", label: t("scopeExternal") },
     ] as const)
       .map((g) => ({
         ...g,
         servers: servers.filter((s) => s.scope === g.scope),
       }))
       .filter((g) => g.servers.length > 0);
-  }, [servers]);
+  }, [servers, t]);
 
   const loadMcpServers = useCallback(async () => {
     setLoading(true);
@@ -372,7 +378,7 @@ export function McpConfig({
       const next = (await res.json()) as McpListResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setActionMessage(action === "enable" ? "服务器已启用。" : "服务器已禁用。");
+      setActionMessage(action === "enable" ? t("serverEnabled") : t("serverDisabled"));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -381,7 +387,7 @@ export function McpConfig({
   }, [cwd]);
 
   const handleRemove = useCallback(async (server: McpServerInfo) => {
-    if (!window.confirm(`确定要删除服务器 "${server.name}" 吗？`)) return;
+    if (!window.confirm(t("deleteServer", { name: server.name }))) return;
     const key = serverKey(server);
     setBusyKey(`remove:${key}`);
     setActionError(null);
@@ -400,7 +406,7 @@ export function McpConfig({
       const next = (await res.json()) as McpListResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setActionMessage("服务器已成功删除。");
+      setActionMessage(t("serverDeleted"));
       setSelected(next.servers[0] ? serverKey(next.servers[0]) : null);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -460,9 +466,9 @@ export function McpConfig({
           };
         });
       } else {
-        throw new Error("探针响应格式无效");
+        throw new Error(t("invalidProbeResponse"));
       }
-      setActionMessage("连接测试完成。");
+      setActionMessage(t("connectionTestComplete"));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -541,7 +547,7 @@ export function McpConfig({
       const next = (await res.json()) as McpListResponse & { error?: string };
       if (!res.ok || next.error) throw new Error(next.error ?? `HTTP ${res.status}`);
       setData(next);
-      setActionMessage(isAdd ? "服务器添加成功。" : "服务器配置更新成功。");
+      setActionMessage(isAdd ? t("serverAdded") : t("serverUpdated"));
       setFormMode(null);
       const targetName = name.trim();
       const added = next.servers.find((s) => s.name === targetName && s.scope === scope);
@@ -598,7 +604,7 @@ export function McpConfig({
         >
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
-              MCP 服务器
+              {t("mcpServers")}
             </span>
             <code
               style={{
@@ -647,7 +653,7 @@ export function McpConfig({
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
               {loading ? (
                 <div style={{ padding: "10px 8px", fontSize: 12, color: "var(--text-muted)" }}>
-                  加载中…
+                  {t("loading")}
                 </div>
               ) : error ? (
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "#ef4444" }}>
@@ -655,7 +661,7 @@ export function McpConfig({
                 </div>
               ) : servers.length === 0 ? (
                 <div style={{ padding: "10px 8px", fontSize: 11, color: "var(--text-dim)" }}>
-                  未配置 MCP 服务器
+                  {t("noServers")}
                 </div>
               ) : (
                 groupedServers.map((group) => (
@@ -781,7 +787,7 @@ export function McpConfig({
                   <line x1="12" y1="5" x2="12" y2="19" />
                   <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
-                添加服务器
+                {t("addServer")}
               </button>
             </div>
           </div>
@@ -793,17 +799,17 @@ export function McpConfig({
               <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 660, minHeight: "100%" }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-                    {formMode === "add" ? "添加 MCP 服务器" : "编辑 MCP 服务器"}
+                    {formMode === "add" ? t("addMcpServer") : t("editMcpServer")}
                   </div>
                   <div style={{ fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-                    {formMode === "add" ? "配置本地执行环境或外部连接" : `编辑 "${name}" 的属性配置`}
+                    {formMode === "add" ? t("configDescription") : t("editDescription", { name })}
                   </div>
                 </div>
 
                 {/* Name field (disabled for Edit) */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <label htmlFor="mcp-name" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                    名称
+                    <label htmlFor="mcp-name" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                    {t("name")}
                   </label>
                   <input
                     id="mcp-name"
@@ -828,12 +834,12 @@ export function McpConfig({
 
                 {/* Scope (segmented selector, disabled for Edit) */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                    作用域
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                    {t("scope")}
                   </span>
                   {formMode === "edit" ? (
                     <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                      {scope === "user" ? "全局 (user)" : "项目 (project)"}
+                      {scope === "user" ? t("scopeUserDisplay") : t("scopeProjectDisplay")}
                     </div>
                   ) : (
                     <SegmentedScope value={scope} onChange={setScope} />
@@ -842,8 +848,8 @@ export function McpConfig({
 
                 {/* Transport type (segmented selector) */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                    传输类型
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                    {t("transportType")}
                   </span>
                   <SegmentedTransport value={transport} onChange={setTransport} />
                 </div>
@@ -852,8 +858,8 @@ export function McpConfig({
                 {transport === "stdio" ? (
                   <>
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <label htmlFor="mcp-command" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                        命令 (Command)
+                        <label htmlFor="mcp-command" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                        {t("command")}
                       </label>
                       <input
                         id="mcp-command"
@@ -876,8 +882,8 @@ export function McpConfig({
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <label htmlFor="mcp-args" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                        参数 (Args，空格分隔)
+                        <label htmlFor="mcp-args" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
+                        {t("args")}
                       </label>
                       <input
                         id="mcp-args"
@@ -902,7 +908,7 @@ export function McpConfig({
                     {formMode === "add" && (
                       <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                         <label htmlFor="mcp-env" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                          环境变量 (Env，每行 KEY=VALUE，可选)
+                          {t("env")}
                         </label>
                         <textarea
                           id="mcp-env"
@@ -929,7 +935,7 @@ export function McpConfig({
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                     <label htmlFor="mcp-url" style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>
-                      URL (HTTP/SSE 连接地址)
+                      {t("url")}
                     </label>
                     <input
                       id="mcp-url"
@@ -965,7 +971,7 @@ export function McpConfig({
                       borderColor: "var(--accent)",
                     }}
                   >
-                    {busy ? "保存中…" : "确定"}
+                    {busy ? t("saving") : t("save")}
                   </button>
                   <button
                     type="button"
@@ -973,7 +979,7 @@ export function McpConfig({
                     disabled={busy}
                     style={buttonStyle(busy)}
                   >
-                    取消
+                    {t("cancel")}
                   </button>
                 </div>
 
@@ -993,7 +999,7 @@ export function McpConfig({
                       enabled={selectedServer.configuredEnabled}
                       loading={busy}
                       onToggle={() => handleToggleEnable(selectedServer)}
-                      label={selectedServer.configuredEnabled ? "禁用服务器" : "启用服务器"}
+                      label={selectedServer.configuredEnabled ? t("disableServer") : t("enableServer")}
                     />
                     <ScopeTag scope={selectedServer.scope} />
                     <StatusTags server={selectedServer} />
@@ -1018,7 +1024,7 @@ export function McpConfig({
                         disabled={busy}
                         style={buttonStyle(busy)}
                       >
-                        编辑
+                        {t("edit")}
                       </button>
                     )}
                     <button
@@ -1026,7 +1032,7 @@ export function McpConfig({
                       disabled={busy}
                       style={buttonStyle(busy)}
                     >
-                      {busyKey === `probe:${serverKey(selectedServer)}` ? "测试中…" : "测试连接"}
+                      {busyKey === `probe:${serverKey(selectedServer)}` ? t("testing") : t("testConnection")}
                     </button>
                     {selectedServer.scope !== "external" && (
                       <button
@@ -1034,7 +1040,7 @@ export function McpConfig({
                         disabled={busy}
                         style={buttonStyle(busy, true)}
                       >
-                        删除
+                        {t("delete")}
                       </button>
                     )}
                   </div>
@@ -1050,31 +1056,31 @@ export function McpConfig({
                     lineHeight: 1.45,
                   }}
                 >
-                  <div style={{ color: "var(--text-dim)" }}>提供者 (Provider)</div>
+                  <div style={{ color: "var(--text-dim)" }}>{t("provider")}</div>
                   <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                     {selectedServer.providerId}
                   </div>
 
-                  <div style={{ color: "var(--text-dim)" }}>传输类型</div>
+                  <div style={{ color: "var(--text-dim)" }}>{t("transport")}</div>
                   <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                     {selectedServer.transport}
                   </div>
 
                   {selectedServer.transport === "stdio" ? (
                     <>
-                      <div style={{ color: "var(--text-dim)" }}>命令 (Command)</div>
+                      <div style={{ color: "var(--text-dim)" }}>{t("commandDetail")}</div>
                       <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
-                        {selectedServer.command ?? "无"}
+                        {selectedServer.command ?? t("none")}
                       </div>
                       
-                      <div style={{ color: "var(--text-dim)" }}>参数 (Args)</div>
+                      <div style={{ color: "var(--text-dim)" }}>{t("argsDetail")}</div>
                       <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
-                        {selectedServer.args?.length ? selectedServer.args.join(" ") : "无"}
+                        {selectedServer.args?.length ? selectedServer.args.join(" ") : t("none")}
                       </div>
 
                       {selectedServer.envKeys.length > 0 && (
                         <>
-                          <div style={{ color: "var(--text-dim)" }}>环境变量</div>
+                          <div style={{ color: "var(--text-dim)" }}>{t("envDetail")}</div>
                           <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
                             {selectedServer.envKeys.join(", ")}
                           </div>
@@ -1085,12 +1091,12 @@ export function McpConfig({
                     <>
                       <div style={{ color: "var(--text-dim)" }}>URL</div>
                       <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
-                        {selectedServer.url ?? "无"}
+                        {selectedServer.url ?? t("none")}
                       </div>
                     </>
                   )}
 
-                  <div style={{ color: "var(--text-dim)" }}>配置文件路径</div>
+                  <div style={{ color: "var(--text-dim)" }}>{t("configPath")}</div>
                   <div style={{ color: "var(--text-muted)", fontFamily: "var(--font-mono)", overflowWrap: "anywhere" }}>
                     {shortenPath(selectedServer.sourcePath)}
                   </div>
@@ -1123,7 +1129,7 @@ export function McpConfig({
                   fontSize: 13,
                 }}
               >
-                选择或添加一个服务器
+                {t("selectOrAdd")}
               </div>
             )}
           </div>
@@ -1147,19 +1153,19 @@ export function McpConfig({
                 title={data.diagnostics.map((d) => `${d.type}: ${d.source ? `${d.source}: ` : ""}${d.message}`).join("\n")}
                 style={{ color: data.diagnostics.some((d) => d.type === "error") ? "#ef4444" : "#d97706" }}
               >
-                {data.diagnostics.length} 项诊断
+                {t("diagnostics", { count: data.diagnostics.length })}
               </span>
             ) : (
               <span>
-                {data ? `已连接 ${servers.filter((s) => s.effectiveForRuntime).length} 个 MCP 服务 (共 ${servers.length} 个配置)` : ""}
+                {data ? t("connectedSummary", { active: servers.filter((s) => s.effectiveForRuntime).length, total: servers.length }) : ""}
               </span>
             )}
           </div>
           <button onClick={() => void loadMcpServers()} disabled={loading || busy} style={buttonStyle(loading || busy)}>
-            刷新
+            {t("refresh")}
           </button>
           <button onClick={onClose} style={buttonStyle(false)}>
-            关闭
+            {t("close")}
           </button>
         </div>
       </div>
