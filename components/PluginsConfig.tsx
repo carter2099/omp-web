@@ -437,6 +437,7 @@ function PathExtensionDetail({
   actionMessage: string | null;
   onRemove: (ext: PathExtensionInfo) => void;
 }) {
+  const t = useTranslations('pluginsConfig');
   const title = ext.packageName ?? basenamePath(ext.path);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -472,7 +473,7 @@ function PathExtensionDetail({
             </span>
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {pathStatusLabel(ext.status)} · 来自 config.yml 的{" "}
+            {pathStatusLabel(ext.status)} · from{" "}
             <code style={{ fontFamily: "var(--font-mono)" }}>extensions</code>
           </div>
         </div>
@@ -482,7 +483,7 @@ function PathExtensionDetail({
           onClick={() => {
             if (
               !window.confirm(
-                `从 config.yml 的 extensions 中移除该路径？\n${ext.configuredPath}`,
+                `Remove this path from config.yml extensions?\n${ext.configuredPath}`,
               )
             ) {
               return;
@@ -491,7 +492,7 @@ function PathExtensionDetail({
           }}
           style={buttonStyle(busy, true)}
         >
-          {busy ? "移除中…" : "移除"}
+          {busy ? t('removing') : t('remove')}
         </button>
       </div>
 
@@ -503,23 +504,23 @@ function PathExtensionDetail({
           fontSize: 12,
         }}
       >
-        <div style={{ color: "var(--text-dim)" }}>配置路径</div>
+        <div style={{ color: "var(--text-dim)" }}>{t('configPath')}</div>
         <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)", wordBreak: "break-all" }}>
           {ext.configuredPath}
         </div>
-        <div style={{ color: "var(--text-dim)" }}>解析路径</div>
+        <div style={{ color: "var(--text-dim)" }}>{t('resolvedPath')}</div>
         <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)", wordBreak: "break-all" }}>
           {shortenPath(ext.path)}
         </div>
         {ext.packageName && (
           <>
-            <div style={{ color: "var(--text-dim)" }}>包名</div>
+            <div style={{ color: "var(--text-dim)" }}>{t('packageName')}</div>
             <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>{ext.packageName}</div>
           </>
         )}
         {ext.version && (
           <>
-            <div style={{ color: "var(--text-dim)" }}>版本</div>
+            <div style={{ color: "var(--text-dim)" }}>{t('version')}</div>
             <div style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>{ext.version}</div>
           </>
         )}
@@ -536,7 +537,7 @@ function PathExtensionDetail({
               marginBottom: 6,
             }}
           >
-            入口
+            {t('entryPoints')}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {ext.entrypoints.map((entry) => (
@@ -575,9 +576,7 @@ function PathExtensionDetail({
           border: "1px solid var(--border)",
         }}
       >
-        「移除」会从 <code style={{ fontFamily: "var(--font-mono)" }}>~/.omp/agent/config.yml</code>{" "}
-        的 <code style={{ fontFamily: "var(--font-mono)" }}>extensions</code> 删除该路径。
-        已打开的会话可能仍保留旧扩展，请重新加载会话或新建会话。
+        {t('removeDescription')}
       </div>
     </div>
   );
@@ -870,7 +869,7 @@ export function PluginsConfig({
               : null;
         setSelected(nextSel);
         if (next.packages.length === 0 && nextPaths.length === 0) setAddMode(true);
-        setActionMessage("路径扩展已从 config.yml 移除。");
+        setActionMessage(t("pathExtensionRemoved"));
       } catch (err) {
         setActionError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -1037,7 +1036,7 @@ export function PluginsConfig({
                         textTransform: "uppercase",
                       }}
                     >
-                      路径扩展
+                      {t('pathExtensions')}
                     </div>
                     {pathExtensions.map((ext) => {
                       const key = pathExtKey(ext);

@@ -13,32 +13,32 @@ export function normalizeTaskEager(value: unknown): TaskEager {
 export function taskEagerShortLabel(value: TaskEager): string {
 	switch (value) {
 		case "preferred":
-			return "倾向";
+			return "Preferred";
 		case "always":
-			return "总是";
+			return "Always";
 		default:
-			return "默认";
+			return "Default";
 	}
 }
 
 export function taskEagerTitle(value: TaskEager): string {
 	switch (value) {
 		case "preferred":
-			return "倾向委派";
+			return "Preferred";
 		case "always":
-			return "总是委派";
+			return "Always";
 		default:
-			return "默认";
+			return "Default";
 	}
 }
 
 export function taskEagerDescription(value: TaskEager): string {
 	switch (value) {
 		case "preferred":
-			return "系统提示加强委派引导";
+			return "System prompt encourages delegation";
 		case "always":
-			return "强制委派引导（eager-task）";
+			return "Force delegation guidance (eager-task)";
 		default:
-			return "模型自行决定是否委派";
+			return "Model decides delegation";
 	}
 }

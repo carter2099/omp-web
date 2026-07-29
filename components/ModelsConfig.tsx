@@ -341,11 +341,11 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
           by["openai-responses"] != null ? `responses ${by["openai-responses"]}` : null,
           by["openai-completions"] != null ? `completions ${by["openai-completions"]}` : null,
         ].filter(Boolean);
-        const skipped = d.skipped != null && d.skipped > 0 ? `，跳过 ${d.skipped}` : "";
+        const skipped = d.skipped != null && d.skipped > 0 ? `, skipped ${d.skipped}` : "";
         setSyncSuccess(
           parts.length > 0
-            ? `已同步 ${d.modelCount ?? 0} 个模型（${parts.join(" / ")}${skipped}）`
-            : `已同步 ${d.modelCount ?? 0} 个模型${skipped}`,
+            ? `Synced ${d.modelCount ?? 0} models (${parts.join(" / ")}${skipped})`
+            : `Synced ${d.modelCount ?? 0} models${skipped}`,
         );
       }
     } catch (e) {
@@ -403,7 +403,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
         >
           <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            从网关同步模型 (AI Way)
+            {t('syncFromGateway')}
           </div>
           <svg
             width="12"
@@ -427,7 +427,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
         {syncOpen && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
             <span style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.4 }}>
-              可自动获取并填充当前网关底下的所有可用模型。
+              {t('syncFromGatewayDesc')}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button
@@ -445,7 +445,7 @@ function ProviderDetail({ name, provider, onChange, onRename, onDelete, onRefres
                   opacity: syncLoading ? 0.7 : 1,
                 }}
               >
-                {syncLoading ? "正在同步…" : "同步模型"}
+                {syncLoading ? t('syncing') : t('syncModels')}
               </button>
               {syncSuccess && (
                 <span style={{ fontSize: 12, color: "#4ade80", display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -1293,9 +1293,9 @@ function AddProviderPicker({
   const availableOAuth = oauthProviders.filter((p) => !p.loggedIn && (!q || p.name.toLowerCase().includes(q)));
   const availableApiKey = apiKeyProviders.filter((p) => !p.configured && (!q || p.displayName.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)));
   const showCustom = !q || "custom".includes(q) || "openai-compatible".includes(q) || "anthropic-compatible".includes(q)
-    || "自定义".includes(q) || "兼容".includes(q);
+    ;
   const showAiWay = !q || "aiway".includes(q) || "ai way".includes(q) || "ai-way".includes(q)
-    || "gateway".includes(q) || "网关".includes(q) || "ai way".includes(q);
+    || "gateway".includes(q) || "ai way".includes(q);
 
   const totalCount = availableOAuth.length + availableApiKey.length + (showCustom ? 1 : 0) + (showAiWay ? 1 : 0);
 
@@ -1354,7 +1354,7 @@ function AddProviderPicker({
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>AI Way</div>
-                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>网关端点 · 可从 /v1/models 同步</div>
+                    <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{t('gatewayEndpoint')}</div>
                   </div>
                   <span style={{ width: 26, height: 26, borderRadius: 5, background: "var(--bg-hover)", border: "1px dashed var(--border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 10, fontWeight: 700, color: "var(--accent)" }}>
                     AW

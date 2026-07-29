@@ -1824,8 +1824,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                 <button
                   onClick={() => !isStreaming && setTaskEagerDropdownOpen((v) => !v)}
                   disabled={isStreaming}
-                  title={`委派偏好：${taskEagerLabel}`}
-                  aria-label="调整任务委派偏好"
+                  title={`Task delegation: ${taskEagerLabel}`}
+                  aria-label={t('adjustTaskEagerAria')}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                     padding: isMobile ? "0 6px" : "8px 12px",
@@ -1864,9 +1864,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                     overflow: "hidden", minWidth: 200,
                   }}>
                     {([
-                      { value: "default" as const, label: "默认", desc: "模型自行决定是否委派" },
-                      { value: "preferred" as const, label: "倾向委派", desc: "系统提示加强委派引导" },
-                      { value: "always" as const, label: "总是委派", desc: "强制委派引导（eager-task）" },
+                      { value: "default" as const, label: t('taskEagerDefault'), desc: t('taskEagerDefaultDesc') },
+                      { value: "preferred" as const, label: t('taskEagerPreferred'), desc: t('taskEagerPreferredDesc') },
+                      { value: "always" as const, label: t('taskEagerAlways'), desc: t('taskEagerAlwaysDesc') },
                     ]).map((opt) => {
                       const isActive = (taskEager ?? "default") === opt.value;
                       return (

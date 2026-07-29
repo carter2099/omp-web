@@ -808,11 +808,11 @@ function ToolCallBlock({ t, block, result, duration, onFocusSubagent }: { t: (ke
           }}
         >
           <div style={{ fontWeight: 600, color: "var(--text)", marginBottom: 4 }}>
-            任务: {(block.input as Record<string, unknown>).task as string}
+            Task: {(block.input as Record<string, unknown>).task as string}
           </div>
           <div style={{ display: "flex", gap: 12, color: "var(--text-muted)", fontSize: 11 }}>
-            <span>执行代理: {(block.input as Record<string, unknown>).agent as string || "task"}</span>
-            <span>状态: {result ? (result.isError ? "失败" : "已完成") : "执行中"}</span>
+            <span>Agent: {(block.input as Record<string, unknown>).agent as string || "task"}</span>
+            <span>Status: {result ? (result.isError ? t('failed') : t('completed')) : t('running')}</span>
           </div>
         </div>
       )}
