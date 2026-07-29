@@ -39,7 +39,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function truncate(text: string, max: number): string {
 	if (text.length <= max) return text;
-	return `${text.slice(0, max)}\n…（已截断 ${text.length - max} 字符）`;
+	return `${text.slice(0, max)}\n…...(truncated ${text.length - max} chars)`;
 }
 
 function extractTextFromContent(content: unknown): string {
@@ -147,7 +147,7 @@ export function parseSubagentTranscriptDisplay(jsonl: string): SubagentDisplayTu
 				id: entryId,
 				role: "tool",
 				toolName,
-				text: text || "（无输出）",
+				text: text || "(no output)",
 			});
 			continue;
 		}
@@ -161,7 +161,7 @@ export function parseSubagentTranscriptDisplay(jsonl: string): SubagentDisplayTu
 		turns.push({
 			id: entryId,
 			role,
-			text: text || (toolCalls && toolCalls.length > 0 ? "" : "（空消息）"),
+			text: text || (toolCalls && toolCalls.length > 0 ? "" : "(empty)"),
 			toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
 		});
 	}
@@ -172,12 +172,12 @@ export function parseSubagentTranscriptDisplay(jsonl: string): SubagentDisplayTu
 export function displayRoleLabel(role: SubagentDisplayRole): string {
 	switch (role) {
 		case "user":
-			return "用户";
+			return "User";
 		case "assistant":
-			return "助手";
+			return "Assistant";
 		case "tool":
-			return "工具";
+			return "Tool";
 		default:
-			return "系统";
+			return "System";
 	}
 }

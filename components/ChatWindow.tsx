@@ -164,7 +164,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
     onAgentEnd?.();
   }, [onAgentEnd]);
 
-  // 稳定化 onEditContent 引用，配合 React.memo 防止历史消息重渲染
+  // Stabilize onEditContent ref for React.memo to prevent history message re-renders
   const handleEditContent = useCallback((content: string) => {
     chatInputRef?.current?.insertIfEmpty(content);
   }, [chatInputRef]);
@@ -699,7 +699,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               setPanelOpen(true);
               void fetchColdHistory();
             }}
-            title="子代理 / 历史"
+            title="Sub-agents / History"
             style={{
               position: "absolute",
               top: 10,
@@ -719,7 +719,7 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
               whiteSpace: "nowrap",
             }}
           >
-            历史
+            History
           </button>
         )}
         {panelOpen && (

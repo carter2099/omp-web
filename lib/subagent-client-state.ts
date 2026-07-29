@@ -340,7 +340,7 @@ export function mergeColdHistory(
 		let description =
 			row.description?.trim()
 			|| row.task?.trim()
-			|| (row.parent ? `历史 · ${row.parent}` : "历史");
+			|| (row.parent ? `History · ${row.parent}` : "History");
 		if (row.agent && row.agent !== row.agentId && !row.description) {
 			description = row.task?.trim()
 				? `${row.agentId} · ${row.task.trim()}`
